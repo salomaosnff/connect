@@ -1,0 +1,175 @@
+.scrollbar::-webkit-scrollbar {
+  background: none;
+  width: 0.5em;
+}
+.scrollbar::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 0.809em;
+}
+.scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
+.scrollbar::-webkit-scrollbar-thumb:active {
+  background: #fff;
+}
+#call {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  background: #1b1b1b;
+  grid-template-areas: 'chat video' 'chat users';
+  grid-template-rows: 1fr 140px;
+  grid-template-columns: 320px 1fr;
+}
+#call .left {
+  grid-area: chat;
+  color: #fff;
+  display: flex;
+  flex-flow: column;
+}
+#call .left .side-buttons .icon-large {
+  font-size: 1.618em;
+  vertical-align: middle;
+}
+#call .left .side-buttons .title {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+  outline: none;
+  padding: 0.5em 0 0.25em 0;
+}
+#call .left .side-buttons .title .mdi {
+  margin: 0 0.25em 0 0.5em;
+}
+#call .left .side-buttons .title .arrow {
+  margin-left: 0.25em;
+}
+#call .left .side-buttons .title-dropdown {
+  position: absolute;
+  top: 100%;
+  list-style: none;
+  background: #444;
+  width: 100%;
+  display: none;
+  box-shadow: 0 8px 8px rgba(0,0,0,0.25);
+  border: 1px solid #333;
+  border-radius: 1em;
+  overflow: auto;
+  max-height: 320px;
+}
+#call .left .side-buttons .title-dropdown li {
+  display: flex;
+  align-items: center;
+  padding: 0.25em 0;
+}
+#call .left .side-buttons .title-dropdown li:hover {
+  background: #333;
+}
+#call .left .side-buttons .title:focus .title-dropdown {
+  display: block;
+}
+#call .left .messages-list {
+  flex: 1;
+  list-style: none;
+  overflow: auto;
+  margin-left: 0.809em;
+  margin-right: 0.25em;
+}
+#call .left .messages-list li {
+  background: #333;
+  margin: 0.25em 0.5em 0.5em 0;
+  padding: 0.809em 0.809em 0.5em 0.809em;
+  border-radius: 0 1em 1em 1em;
+  font-size: 0.9375em;
+  color: #e0e0e0;
+}
+#call .left .messages-list li .username {
+  display: block;
+  margin: 0 0 0.25em 0;
+  color: #fff;
+}
+#call .left .messages-list li .time {
+  display: block;
+  text-align: right;
+  font-size: 0.8em;
+  color: #aaa;
+}
+#call .left .composer {
+  display: flex;
+  margin: 0.25em 0.5em 0 0.809em;
+}
+#call .left .composer textarea {
+  flex: 1;
+  border: none;
+  background: none;
+  border-radius: 0.809em;
+  padding: 0.809em;
+  color: #fff;
+  outline: none;
+  resize: none;
+}
+#call .left .composer textarea:focus {
+  background: #333;
+}
+#call .main-video {
+  display: block;
+  grid-area: video;
+  background: #00f;
+  position: relative;
+}
+#call .main-video .action-buttons {
+  position: absolute;
+  bottom: 1em;
+  left: 50%;
+  transform: translate(-50%, 0);
+}
+#call .main-video .action-buttons .action-button {
+  border: none;
+  font-size: 1.3em;
+  color: #fff;
+  width: 48px;
+  height: 48px;
+  cursor: pointer;
+  border-radius: 64px;
+  background: rgba(0,0,0,0.25);
+}
+#call .main-video .action-buttons .action-button:hover {
+  background: rgba(0,0,0,0.5);
+}
+#call .main-video .action-buttons .action-button.hangup {
+  background: #f00;
+  width: 54px;
+  height: 54px;
+  font-size: 1.618em;
+}
+#call .remote-medias {
+  grid-area: users;
+  overflow: hidden;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 0.809em;
+  direction: rtl;
+}
+#call .remote-medias .remote-media {
+  display: inline-block;
+  font-size: 0.809em;
+  color: #e0e0e0;
+  width: 80px;
+  margin-right: 0.5em;
+}
+#call .remote-medias .remote-media video {
+  background: #f00;
+  width: 100%;
+  height: 80px;
+  margin: 0 auto;
+}
+#call .remote-medias .remote-media strong {
+  display: block;
+  text-align: center;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  width: 100%;
+  height: 3em;
+}
+

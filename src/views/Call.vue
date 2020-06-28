@@ -1,118 +1,242 @@
 <template>
-  <c-room
-    :room-id="$route.params.id"
-    :username="username"
-    signaling-url="https://btlyh.sse.codesandbox.io"
-    ref="room"
-  >
-    <template #default="{connected, peers, streams}">
-      <div id="call">
-        <section class="left">
-          <div class="side-buttons">
-            <div class="title" tabindex="0">
+  <div id="call">
+    <section class="left">
+      <div class="side-buttons">
+        <div class="title" tabindex="0">
+          <i class="mdi mdi-chat icon-large"></i>
+          <span>Mensagens</span>
+          <i class="arrow mdi mdi-chevron-down"></i>
+
+          <ul class="title-dropdown">
+            <li tabindex="-1">
               <i class="mdi mdi-chat icon-large"></i>
               <span>Mensagens</span>
-              <i class="arrow mdi mdi-chevron-down"></i>
-
-              <ul class="title-dropdown">
-                <li tabindex="-1">
-                  <i class="mdi mdi-chat icon-large"></i>
-                  <span>Mensagens</span>
-                </li>
-                <li tabindex="-1">
-                  <i class="mdi mdi-attachment icon-large"></i>
-                  <span>Arquivos</span>
-                </li>
-                <li tabindex="-1">
-                  <i class="mdi mdi-account-group icon-large"></i>
-                  <span>Pessoas</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-          <ul class="messages-list scrollbar">
-            <li v-for="i in 10" :key="i">
-              <strong class="username">Salomão Neto</strong>
-              <p
-                class="text"
-              >Lorem ipsum dolor, sit amet consectetur adipisicing elit. Porro quis exercitationem, deserunt nihil odit suscipit! Amet laborum dolorem sequi. Nesciunt eveniet molestiae iste sit recusandae quo dignissimos placeat dolorum delectus?</p>
-              <time class="time">11:00</time>
+            </li>
+            <li tabindex="-1">
+              <i class="mdi mdi-attachment icon-large"></i>
+              <span>Arquivos</span>
+            </li>
+            <li tabindex="-1">
+              <i class="mdi mdi-account-group icon-large"></i>
+              <span>Pessoas</span>
             </li>
           </ul>
-          <form @submit.prevent class="composer">
-            <textarea rows="2" placeholder="Escreva aqui..."></textarea>
-          </form>
-        </section>
-        <div class="main-video">
-          <video ref="currentVideo" class="main-video" playsinline autoplay muted></video>
-          <div class="action-buttons">
-            <button class="action-button" @click="$refs.room.getDisplayMedia()">
-              <i class="mdi mdi-monitor-screenshot"></i>
-            </button>
-
-            <button class="action-button">
-              <i class="mdi mdi-microphone"></i>
-            </button>
-            <button class="action-button hangup">
-              <i class="mdi mdi-phone-hangup"></i>
-            </button>
-            <button class="action-button" @click="$refs.room.getUserMedia({ audio: true, video: false })">
-              <i class="mdi mdi-video"></i>
-            </button>
-            <button class="action-button">
-              <i class="mdi mdi-fullscreen"></i>
-            </button>
-          </div>
-        </div>
-        <div class="remote-medias scrollbar">
-          <button v-if="!connected" @click="connect()">Conectar</button>
-
-          <div class="remote-media" v-for="(peer, id) in peers" :key="id">
-            <c-rtc-video
-              v-for="stream in streams[id]"
-              :key="stream.id"
-              :stream="stream"
-              autoplay
-              muted
-              playsinline
-            />
-            <strong class="username">{{ peer.name }}</strong>
-          </div>
         </div>
       </div>
-    </template>
-  </c-room>
+      <ul class="messages-list scrollbar">
+        <li v-for="i in 10" :key="i">
+          <strong class="username">Salomão Neto</strong>
+          <p class="text">
+            Lorem ipsum dolor, sit amet consectetur adipisicing elit. Porro quis
+            exercitationem, deserunt nihil odit suscipit! Amet laborum dolorem
+            sequi. Nesciunt eveniet molestiae iste sit recusandae quo
+            dignissimos placeat dolorum delectus?
+          </p>
+          <time class="time">11:00</time>
+        </li>
+      </ul>
+      <form @submit.prevent class="composer">
+        <textarea rows="2" placeholder="Escreva aqui..."></textarea>
+      </form>
+    </section>
+    <div class="main-video" ref="mainVideo">
+      <c-rtc-video
+        :stream="activeStream"
+        playsinline
+        autoplay
+        muted
+      ></c-rtc-video>
+      <div class="action-buttons">
+        <button class="action-button" @click="toggleScreenStream()">
+          <i class="mdi mdi-monitor-screenshot"></i>
+        </button>
+
+        <button class="action-button" @click="toggleAudioStream()">
+          <i class="mdi mdi-microphone"></i>
+        </button>
+        <button class="action-button hangup">
+          <i class="mdi mdi-phone-hangup"></i>
+        </button>
+        <button class="action-button" @click="toggleCameraStream()">
+          <i class="mdi mdi-video"></i>
+        </button>
+        <button class="action-button" @click="toggleFullScreen()">
+          <i class="mdi mdi-fullscreen"></i>
+        </button>
+      </div>
+    </div>
+    <div class="remote-medias scrollbar">
+      <div class="remote-media" v-for="(peer, id) in peers" :key="id">
+        <c-rtc-video
+          v-for="stream in peer.streams"
+          :key="stream.id"
+          :stream="stream"
+          @click.native="activeStream = stream"
+          autoplay
+          playsinline
+        />
+
+        <strong class="username">{{ id }}</strong>
+      </div>
+    </div>
+
+    <iframe
+      src="https://eh1v2.sse.codesandbox.io/"
+      style="display:none;"
+      frameborder="0"
+    ></iframe>
+  </div>
 </template>
 
-<script>
+<script lang="ts">
 import Vue from "vue";
-import { Room } from "../lib/p2p";
-import RTCVideo from "../lib/p2p/rtc-video";
+import { Peer, SocketIOSignaling, RTCVideo } from "../lib/p2p";
 
-export default {
+export default Vue.extend({
   components: {
-    CRoom: Room,
-    CRtcVideo: RTCVideo
+    CRtcVideo: RTCVideo,
   },
   data() {
     return {
       connected: false,
-      username: ""
+      signaling: new SocketIOSignaling("https://eh1v2.sse.codesandbox.io/"),
+      peers: {} as Record<string, Peer>,
+      streams: {
+        media: null as MediaStream | null,
+        screen: null as MediaStream | null,
+      },
+      activeStream: null as MediaStream | null,
     };
   },
-  watch: {
-    "$refs.room.streams"() {
-      console.log('Stream updated!')
-      this.$refs.currentVideo.srcObject = this.$refs.room.streams[0];
-    }
+  async created() {
+    //@ts-ignore
+    this.streams.media = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
+
+    const connectedPeers = await this.signaling.join("teste");
+
+    this.peers = connectedPeers.reduce(
+      (acc: Record<string, Peer>, peerId: string) => {
+        acc[peerId] = this.createPeer(peerId);
+        return acc;
+      },
+      {}
+    );
+
+    this.signaling.io.on("joined", (peerId: string) => {
+      const peer = this.createPeer(peerId, false);
+      console.log(`${peerId} entrou!`);
+    });
   },
   methods: {
-    connect() {
-      this.username = String(Math.random()) || prompt("Qual o seu nome?");
-      this.$nextTick(() => this.$refs.room.connect());
-    }
-  }
-};
+    createPeer(peerId: string, canOffer = true) {
+      const peer = new Peer(peerId, this.signaling, canOffer);
+
+      Object.values(this.streams).forEach((stream) => {
+        if (stream) peer.addStream(stream);
+      });
+
+      if (!this.activeStream) peer.streams[0];
+
+      // @ts-ignore
+      peer.on("disconnected", () => {
+        this.$delete(this.peers, peerId);
+      });
+
+      this.$set(this.peers, peerId, Vue.observable(peer));
+      return peer;
+    },
+    async toggleScreenStream() {
+      if (!this.streams.screen) {
+        console.log("Enabling screen sharing!");
+        // @ts-ignore
+        this.streams.screen = await navigator.mediaDevices.getDisplayMedia();
+        this.addStream(this.streams.screen as MediaStream);
+      } else {
+        console.log("Disabling screen sharing!");
+
+        this.streams.screen.getVideoTracks().forEach((track) => track.stop());
+        this.removeStream(this.streams.screen);
+        this.streams.screen = null;
+      }
+    },
+    async toggleAudioStream() {
+      if (this.streams.media) {
+        console.log("Toggling microphone!");
+
+        this.streams.media
+          .getAudioTracks()
+          .forEach((track) => (track.enabled = !track.enabled));
+      }
+    },
+    async toggleCameraStream() {
+      if (this.streams.media) {
+        if (this.streams.media.getVideoTracks().length > 0) {
+          console.log("Disabling camera!");
+
+          this.streams.media
+            .getVideoTracks()
+            .forEach((track: MediaStreamTrack) => {
+              track.stop();
+              this.streams.media?.removeTrack(track);
+
+              Object.values(this.peers).forEach((p: Peer) => {
+                const sender = p.senders.find((s) => s.track?.id === track.id);
+
+                if (sender) {
+                  p.rtc.removeTrack(sender);
+                }
+              });
+            });
+        } else {
+          console.log("Enabling camera!");
+
+          const cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+          });
+
+          cameraStream.getVideoTracks().forEach((track) => {
+            this.streams.media?.addTrack(track);
+
+            Object.values(this.peers).forEach((p: Peer) => {
+              p.senders.push(
+                p.rtc.addTrack(track, this.streams.media as MediaStream)
+              );
+            });
+          });
+        }
+      }
+    },
+    toggleFullScreen() {
+      if (
+        // @ts-ignore
+        window.fullScreen ||
+        (window.innerWidth == screen.width &&
+          window.innerHeight == screen.height)
+      ) {
+        document.exitFullscreen();
+      } else {
+        // @ts-ignore
+        this.$refs.mainVideo.requestFullscreen();
+      }
+    },
+    addStream(stream: MediaStream) {
+      Object.values(this.peers).forEach((peer) => {
+        peer.addStream(stream);
+      });
+    },
+    removeStream(stream: MediaStream) {
+      Object.values(this.peers).forEach((peer) => {
+        peer.removeStream(stream);
+      });
+    },
+  },
+  destroyed() {
+    this.signaling.dispose();
+  },
+});
 </script>
 
 <style lang="stylus">
@@ -142,7 +266,7 @@ export default {
   display: grid;
   background: #1b1b1b;
   grid-template-areas: 'chat video' 'chat users';
-  grid-template-rows: 1fr 140px;
+  grid-template-rows: minmax(320px, 1fr) 140px;
   grid-template-columns: 320px 1fr;
 
   .left {
@@ -259,8 +383,14 @@ export default {
   .main-video {
     display: block;
     grid-area: video;
-    background: blue;
+    background: black;
     position: relative;
+    margin: 1.4rem;
+
+    video {
+      width: 100%;
+      height: 100%;
+    }
 
     .action-buttons {
       position: absolute;
@@ -306,12 +436,14 @@ export default {
       color: #e0e0e0;
       width: 80px;
       margin-right: 0.5em;
+      border: 1px solid #eee;
 
       video {
-        background: red;
+        background: #333;
         width: 100%;
         height: 80px;
         margin: 0 auto;
+        object-fit: cover;
       }
 
       strong {

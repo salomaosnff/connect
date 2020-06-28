@@ -1,5 +1,5 @@
 <template>
-  <video ref="video" playsinline />
+  <video v-show="isVideo" :srcObject.prop="stream" autoplay playsinline />
 </template>
 
 <script>
@@ -7,21 +7,16 @@ export default {
   props: {
     stream: {
       type: MediaStream,
-      required: false
-    }
+      required: false,
+    },
   },
-  watch: {
-    stream() {
-      this.$refs.video.srcObject = this.stream;
-    }
+  computed: {
+    isVideo: {
+      cache: false,
+      get() {
+        return this.stream && this.stream.getVideoTracks().length > 0;
+      },
+    },
   },
-  mounted() {
-    this.$refs.video.srcObject = this.stream;
-  },
-  methods: {
-    play() {
-      this.$refs.video.play();
-    }
-  }
 };
 </script>

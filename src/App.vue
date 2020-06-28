@@ -3,27 +3,8 @@
 </template>
 
 <script>
-import { Peer, PeerManager } from "./lib/p2p";
-
 export default {
-  async created() {
-    window.addEventListener("click", () => this.connect());
-  },
-  methods: {
-    async connect() {
-      const userA = new PeerManager()
-      const userB = new PeerManager()
-
-      userB.signaling = userA.signaling
-      
-      const p1 = new Peer('p1')
-
-      await p1.offerMedia({ audio: true, video: true })
-
-      userA.add(p1)
-      debugger
-    }
-  }
+  name: "App",
 };
 </script>
 <style lang="stylus">

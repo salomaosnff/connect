@@ -23,20 +23,24 @@
           </ul>
         </div>
       </div>
-      <ul class="messages-list scrollbar">
-        <li v-for="i in 10" :key="i">
-          <strong class="username">Salomão Neto</strong>
-          <p class="text">
-            Lorem ipsum dolor, sit amet consectetur adipisicing elit. Porro quis
-            exercitationem, deserunt nihil odit suscipit! Amet laborum dolorem
-            sequi. Nesciunt eveniet molestiae iste sit recusandae quo
-            dignissimos placeat dolorum delectus?
-          </p>
-          <time class="time">11:00</time>
+      <ul class="messages-list scrollbar" ref="chat">
+        <li
+          v-for="(message, i) in $store.state.chat.messages"
+          :key="i"
+          :class="{ me: message.user.username === userInfo.username }"
+        >
+          <strong class="username">{{ message.user.username }}</strong>
+          <p class="text" v-html="message.text"></p>
+          <time class="time">{{ message.date }}</time>
         </li>
       </ul>
       <form @submit.prevent class="composer">
-        <textarea rows="2" placeholder="Escreva aqui..."></textarea>
+        <textarea
+          v-model="chat.message"
+          rows="2"
+          placeholder="Escreva aqui..."
+          @keyup.enter.stop="sendChatMessage"
+        ></textarea>
       </form>
     </section>
     <div class="main-video" ref="mainVideo">
@@ -52,16 +56,19 @@
         </button>
 
         <button class="action-button" @click="toggleAudioStream()">
-          <i class="mdi mdi-microphone"></i>
+          <i :class="`mdi mdi-microphone${media.microphone ? '' : '-off'}`"></i>
         </button>
-        <button class="action-button hangup">
+        <button
+          :class="{ 'action-button': true, call: true, hangup: connected }"
+          @click="() => (connected ? hangup() : call())"
+        >
           <i class="mdi mdi-phone-hangup"></i>
         </button>
         <button class="action-button" @click="toggleCameraStream()">
-          <i class="mdi mdi-video"></i>
+          <i :class="`mdi mdi-video${media.camera ? '' : '-off'}`"></i>
         </button>
         <button class="action-button" @click="toggleFullScreen()">
-          <i class="mdi mdi-fullscreen"></i>
+          <i :class="`mdi mdi-fullscreen${fullscreen ? '-exit' : ''}`"></i>
         </button>
       </div>
     </div>
@@ -74,9 +81,9 @@
           @click.native="activeStream = stream"
           autoplay
           playsinline
-        />
+        ></c-rtc-video>
 
-        <strong class="username">{{ id }}</strong>
+        <strong class="username">{{ peer.info.username }}</strong>
       </div>
     </div>
 
@@ -98,47 +105,128 @@ export default Vue.extend({
   },
   data() {
     return {
-      connected: false,
+      // @ts-ignore
+      room: this.$route.params.id,
       signaling: new SocketIOSignaling("https://eh1v2.sse.codesandbox.io/"),
       peers: {} as Record<string, Peer>,
+      fullscreen: false,
+      userInfo: {
+        username:
+          localStorage.getItem("username") || prompt("Digite seu nome:"),
+      },
+      media: {
+        screen: false,
+        microphone: false,
+        camera: false,
+      },
       streams: {
         media: null as MediaStream | null,
         screen: null as MediaStream | null,
       },
       activeStream: null as MediaStream | null,
+      chat: {
+        message: "",
+      },
     };
   },
-  async created() {
-    //@ts-ignore
-    this.streams.media = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: false,
-    });
-
-    const connectedPeers = await this.signaling.join("teste");
-
-    this.peers = connectedPeers.reduce(
-      (acc: Record<string, Peer>, peerId: string) => {
-        acc[peerId] = this.createPeer(peerId);
-        return acc;
-      },
-      {}
-    );
-
-    this.signaling.io.on("joined", (peerId: string) => {
-      const peer = this.createPeer(peerId, false);
-      console.log(`${peerId} entrou!`);
+  created() {
+    this.call().then(() => {
+      console.log("Connection stabilished.");
     });
   },
-  methods: {
-    createPeer(peerId: string, canOffer = true) {
-      const peer = new Peer(peerId, this.signaling, canOffer);
+  watch: {
+    ["$store.state.chat.messages"](value) {
+      const chat = this.$refs.chat as HTMLElement;
+      const needScroll =
+        chat.scrollTop >= chat.scrollHeight - chat.offsetHeight - 64;
 
-      Object.values(this.streams).forEach((stream) => {
-        if (stream) peer.addStream(stream);
+      this.$nextTick(() => {
+        if (this.$refs.chat) {
+          if (needScroll) {
+            chat.scrollTop = chat.scrollHeight;
+          }
+        }
+      });
+    },
+  },
+  computed: {
+    connected(): boolean {
+      return this.signaling && this.signaling.io.connected;
+    },
+  },
+  methods: {
+    async call() {
+      console.log("Calling...");
+
+      if (this.signaling && !this.signaling.io.connected) {
+        this.signaling.io.connect();
+      }
+
+      //@ts-ignore
+      this.streams.media = await this.getUserMedia();
+
+      const connectedPeers = await this.signaling.join(
+        this.room,
+        this.userInfo
+      );
+
+      if (this.userInfo.username)
+        localStorage.setItem("username", this.userInfo.username);
+
+      this.peers = connectedPeers.reduce(
+        (acc: Record<string, Peer>, { id, info }) => {
+          acc[id] = this.createPeer(id, info);
+          return acc;
+        },
+        {}
+      );
+
+      // When someone join
+      this.signaling.io.on(
+        "joined",
+        (peerId: string, info: Record<string, any>) => {
+          this.peers[peerId] = this.createPeer(peerId, info, false);
+
+          console.log(`${peerId} entrou!`);
+        }
+      );
+
+      // When someone hangup
+      this.signaling.io.on("hangup", (peerId: string) => {
+        console.log(`${peerId} saiu!`);
+        if (this.peers[peerId]) {
+          this.peers[peerId].dispose();
+          Vue.delete(this.peers, peerId);
+        }
+      });
+    },
+    hangup() {
+      console.log("Disconnecting...");
+
+      this.signaling.hangup();
+      this.signaling.dispose();
+      Object.values(this.peers).forEach((peer) => peer.dispose());
+      this.peers = {};
+      console.log("Disconnected!");
+    },
+    createPeer(
+      peerId: string,
+      info: Record<string, any> = {},
+      canOffer = true
+    ) {
+      const peer = new Peer(peerId, this.signaling, info, canOffer);
+
+      Object.entries(this.streams).forEach(([name, stream]) => {
+        console.log(
+          `Sending stream to ${peerId}. Name: ${name}; Stream: `,
+          stream
+        );
+        if (stream) {
+          peer.addStream(stream);
+        }
       });
 
-      if (!this.activeStream) peer.streams[0];
+      if (!this.activeStream) this.activeStream = peer.streams[0];
 
       // @ts-ignore
       peer.on("disconnected", () => {
@@ -149,31 +237,37 @@ export default Vue.extend({
       return peer;
     },
     async toggleScreenStream() {
-      if (!this.streams.screen) {
+      if (!this.media.screen) {
         console.log("Enabling screen sharing!");
-        // @ts-ignore
-        this.streams.screen = await navigator.mediaDevices.getDisplayMedia();
+
+        this.streams.screen = await this.getDisplayMedia();
         this.addStream(this.streams.screen as MediaStream);
       } else {
         console.log("Disabling screen sharing!");
 
-        this.streams.screen.getVideoTracks().forEach((track) => track.stop());
-        this.removeStream(this.streams.screen);
+        this.streams.screen?.getVideoTracks().forEach((track) => track.stop());
+        this.removeStream(this.streams.screen as MediaStream);
         this.streams.screen = null;
       }
+
+      this.media.screen = !!this.streams.screen;
     },
     async toggleAudioStream() {
       if (this.streams.media) {
-        console.log("Toggling microphone!");
+        console.log(
+          (this.media.microphone ? "Disabling" : "Enabling") + " microphone!"
+        );
+
+        this.media.microphone = !this.media.microphone;
 
         this.streams.media
           .getAudioTracks()
-          .forEach((track) => (track.enabled = !track.enabled));
+          .forEach((track) => (track.enabled = this.media.microphone));
       }
     },
     async toggleCameraStream() {
       if (this.streams.media) {
-        if (this.streams.media.getVideoTracks().length > 0) {
+        if (this.media.camera) {
           console.log("Disabling camera!");
 
           this.streams.media
@@ -211,30 +305,111 @@ export default Vue.extend({
     },
     toggleFullScreen() {
       if (
-        // @ts-ignore
+        /// @ts-ignore
         window.fullScreen ||
         (window.innerWidth == screen.width &&
           window.innerHeight == screen.height)
       ) {
         document.exitFullscreen();
+        this.fullscreen = false;
       } else {
         // @ts-ignore
-        this.$refs.mainVideo.requestFullscreen();
+        this.fullscreen = this.$refs.mainVideo.requestFullscreen();
       }
     },
     addStream(stream: MediaStream) {
       Object.values(this.peers).forEach((peer) => {
+        console.log(`Adding stream to ${peer.id}.`, stream);
         peer.addStream(stream);
       });
     },
     removeStream(stream: MediaStream) {
       Object.values(this.peers).forEach((peer) => {
+        console.log(`Removing stream from ${peer.id}.`, stream);
         peer.removeStream(stream);
       });
     },
+    async getDisplayMedia() {
+      this.media.screen = true;
+      // @ts-ignore
+      return navigator.mediaDevices.getDisplayMedia();
+    },
+    async getUserMedia(
+      options: MediaStreamConstraints = {
+        audio: true,
+        video: false,
+      }
+    ) {
+      this.media.microphone = options.audio as boolean;
+      this.media.camera = options.video as boolean;
+      return await navigator.mediaDevices.getUserMedia(options);
+    },
+    sendChannelData(channelLabel: string, data: any) {
+      Object.values(this.peers).forEach((peer) => {
+        if (peer.channels[channelLabel]) {
+          const channel = peer.channels[channelLabel];
+
+          if (channel.readyState === "open") {
+            channel.send(data);
+          }
+        }
+      });
+    },
+    normalizeMessage(msg: string): string {
+      return msg
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;")
+        .replace(
+          /https?:\/\/(?:www.)?(?:youtube.com\/watch\?v=|youtu.be\/)(\w+)/g,
+          "yt($1)"
+        )
+        .replace(
+          /(https?:\/\/[^\s]+\.(?:png|jpe?g|gif|svg|webp)[^\s]*)/g,
+          "[$1]"
+        )
+        .replace(/(https?:\/\/[^\s]+\.(?:mp4)[^\s]*)/g, "video($1)")
+        .replace(
+          /(?<!\[)(?<!video\()(https?\:\/\/[^\s]+)/g,
+          `<a href="$1" title="$1" target="_blank">$1</a>`
+        )
+        .replace(
+          /yt\(([^\]]+)\)/g,
+          ` <div class="media">
+              <iframe frameborder="0" src="https://youtube.com/embed/$1" class="img-link" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+              <a href="https://youtube.com/watch?v=$1" target="_blank" title="https://youtube.com/watch?v=$1">https://youtube.com/watch?v=$1</a>
+            </div>`
+        )
+        .replace(/video\(([^\]]+)\)/g, `<video src="$1" controls />`)
+        .replace(
+          /\[(https?\:\/\/[^\s]+)\]/g,
+          `<a href="$1" title="$1" class="img-link" target="_blank"><img src="$1"/></a>`
+        )
+        .replace(/\*\*([^*]+)\*\*/g, `<strong>$1</strong>`)
+        .replace(/\~([^~]+)\~/g, `<strike>$1</strike>`)
+        .replace(/__([^_]+)__/g, `<em>$1</em>`);
+    },
+    sendChatMessage() {
+      const messageText = this.normalizeMessage(this.chat.message.trim());
+
+      if (messageText) {
+        const message = {
+          user: this.userInfo,
+          text: messageText,
+          date: new Date(),
+        };
+        this.$store.dispatch("addMessage", message);
+        this.sendChannelData("chat", JSON.stringify(message));
+
+        this.chat.message = "";
+      }
+    },
   },
-  destroyed() {
-    this.signaling.dispose();
+  beforeDestroy() {
+    console.log("beforeDestroy()");
+    this.hangup();
   },
 });
 </script>
@@ -267,7 +442,7 @@ export default Vue.extend({
   background: #1b1b1b;
   grid-template-areas: 'chat video' 'chat users';
   grid-template-rows: minmax(320px, 1fr) 140px;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 390px 1fr;
 
   .left {
     grid-area: chat;
@@ -343,6 +518,12 @@ export default Vue.extend({
         border-radius: 0 1em 1em 1em;
         font-size: 0.9375em;
         color: #E0E0E0;
+        word-break: break-word;
+
+        &.me {
+          border-radius: 1em 0 1em 1em;
+          background: #263238;
+        }
 
         .username {
           display: block;
@@ -355,6 +536,19 @@ export default Vue.extend({
           text-align: right;
           font-size: 0.8em;
           color: #AAA;
+        }
+
+        .img-link {
+          display: block;
+          overflow: hidden;
+          margin: .4rem;
+        }
+
+        img, video {
+          max-width: 100%;
+          width: 100%;
+          border-radius: .4rem;
+          margin: 0;
         }
       }
     }
@@ -412,11 +606,19 @@ export default Vue.extend({
           background: rgba(0, 0, 0, 0.5);
         }
 
-        &.hangup {
+        &.disabled {
           background: #F00;
+        }
+
+        &.call {
           width: 54px;
           height: 54px;
           font-size: 1.618em;
+          background: #0F0;
+
+          &.hangup {
+            background: #F00;
+          }
         }
       }
     }
@@ -434,7 +636,7 @@ export default Vue.extend({
       display: inline-block;
       font-size: 0.809em;
       color: #e0e0e0;
-      width: 80px;
+      width: 180px;
       margin-right: 0.5em;
       border: 1px solid #eee;
 
@@ -452,7 +654,6 @@ export default Vue.extend({
         text-overflow: ellipsis;
         overflow: hidden;
         width: 100%;
-        height: 3em;
       }
     }
   }

@@ -29,8 +29,17 @@ export class SocketIOSignaling implements ISignaling {
     this.io.emit("candidate", candidate, peer.id);
   }
 
-  join(roomId: string): Promise<string[]> {
-    return new Promise((resolve) => this.io.emit("join", roomId, resolve));
+  join(
+    roomId: string,
+    info: Record<string, any>
+  ): Promise<{ id: string; info: Record<string, any> }[]> {
+    return new Promise((resolve) =>
+      this.io.emit("join", roomId, info, resolve)
+    );
+  }
+
+  hangup() {
+    this.io.emit("hangup");
   }
 
   on(

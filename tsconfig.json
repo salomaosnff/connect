@@ -6,9 +6,13 @@
     // habilita inferência estrita de propriedades de dados no `this`
     "strict": true,
     // se usando webpack 2+ ou rollup, para habilitar tree shaking
-    "module": "es2015",
+    "module": "commonjs",
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
-    "lib": ["ES2020", "DOM"]
+    "lib": ["ES2020", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["src/*"]
+    }
   }
 }

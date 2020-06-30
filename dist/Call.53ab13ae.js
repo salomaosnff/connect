@@ -537,6 +537,8 @@ var _vue = _interopRequireDefault(require("vue"));
 
 var _events = require("events");
 
+var _store = _interopRequireDefault(require("../../store"));
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -600,7 +602,11 @@ var Peer =
 function (_super) {
   __extends(Peer, _super);
 
-  function Peer(id, signaling, canOffer) {
+  function Peer(id, signaling, info, canOffer) {
+    if (info === void 0) {
+      info = {};
+    }
+
     if (canOffer === void 0) {
       canOffer = true;
     }
@@ -609,9 +615,15 @@ function (_super) {
 
     _this.id = id;
     _this.signaling = signaling;
+    _this.info = info;
     _this.canOffer = canOffer;
     _this.streams = {};
     _this.senders = [];
+    _this.channels = {};
+    /**
+     * Peer Connection Instance
+     */
+
     _this.rtc = new RTCPeerConnection({
       iceServers: [{
         urls: "stun:stun.l.google.com:19302"
@@ -621,56 +633,24 @@ function (_super) {
         urls: "stun:stun2.l.google.com:19302"
       }, {
         urls: "stun:stun3.l.google.com:19302"
+      }, {
+        urls: "turn:numb.viagenie.ca",
+        credential: "muazkh",
+        username: "webrtc@live.com"
+      }, {
+        urls: "turn:192.158.29.39:3478?transport=udp",
+        credential: "JZEOEt2V3Qb0y27GRntt2u2PAYA=",
+        username: "28224511:1379330808"
+      }, {
+        urls: "turn:192.158.29.39:3478?transport=tcp",
+        credential: "JZEOEt2V3Qb0y27GRntt2u2PAYA=",
+        username: "28224511:1379330808"
       }]
     });
 
-    _this.rtc.addEventListener("icecandidate", function (e) {
-      if (e.candidate) {
-        signaling.candidate(e.candidate, _this);
-      }
-    });
+    _this.registerListeners();
 
-    _this.rtc.addEventListener("negotiationneeded", function () {
-      console.log("Negotiation needed", "Can offer: " + _this.canOffer);
-      if (_this.canOffer) _this.createOffer();
-    });
-
-    _this.rtc.addEventListener("connectionstatechange", function () {
-      var connectionState = _this.rtc.connectionState;
-
-      if (new Set(["closed", "disconnected", "failed"]).has(connectionState)) {
-        _this.emit("disconnected");
-      }
-
-      if (connectionState === "connected") {
-        _this.canOffer = true;
-      }
-
-      _this.log("Connection State Changed => " + connectionState); // Verifica se o status atual não for conectado ou conectado e remove
-      // os listeners
-
-
-      if (!new Set(["connected", "connecting"]).has(connectionState)) {
-        _this.dispose();
-      }
-    });
-
-    _this.rtc.addEventListener("track", function (e) {
-      console.log("Track event");
-      e.streams.forEach(function (stream) {
-        var _a;
-
-        if (!_this.streams[stream.id]) {
-          stream.addEventListener("removetrack", function (e) {
-            if (stream.getTracks().length === 0) {
-              _vue.default.delete(_this.streams, stream.id);
-            }
-          });
-        }
-
-        _this.streams = __assign(__assign({}, _this.streams), (_a = {}, _a[stream.id] = stream, _a));
-      });
-    });
+    _this.createDataChannels();
 
     _this.socketListeners = {
       candidate: signaling.on("candidate", _this, function (candidate) {
@@ -690,9 +670,83 @@ function (_super) {
     return _this;
   }
 
+  Peer.prototype.registerListeners = function () {
+    var _this = this;
+
+    this.rtc.addEventListener("icecandidate", function (e) {
+      if (e.candidate) {
+        _this.signaling.candidate(e.candidate, _this);
+      }
+    });
+    this.rtc.addEventListener("negotiationneeded", function () {
+      console.log("Negotiation needed", "Can offer: " + _this.canOffer);
+      if (_this.canOffer) _this.createOffer();
+    });
+    this.rtc.addEventListener("connectionstatechange", function () {
+      var connectionState = _this.rtc.connectionState;
+
+      if (new Set(["closed", "disconnected", "failed"]).has(connectionState)) {
+        _this.emit("disconnected");
+      }
+
+      if (connectionState === "connected") {
+        _this.canOffer = true;
+      }
+
+      _this.log("Connection State Changed => " + connectionState); // Verifica se o status atual não for conectado ou conectado e remove
+      // os listeners
+
+
+      if (!new Set(["connected", "connecting"]).has(connectionState)) {
+        _this.dispose();
+      }
+    });
+    this.rtc.addEventListener("track", function (e) {
+      console.log("Track event. Streams: ", e.streams);
+      e.streams.forEach(function (stream) {
+        var _a;
+
+        if (!_this.streams[stream.id]) {
+          stream.addEventListener("removetrack", function (e) {
+            if (stream.getTracks().length === 0) {
+              _vue.default.delete(_this.streams, stream.id);
+            }
+          });
+        }
+
+        _this.streams = __assign(__assign({}, _this.streams), (_a = {}, _a[stream.id] = stream, _a));
+      });
+    });
+  };
+
+  Peer.prototype.createDataChannels = function () {
+    var _this = this;
+
+    var _a;
+
+    var chatListener = function chatListener(e) {
+      _store.default.dispatch("addMessage", JSON.parse(e.data));
+
+      console.log("Message received: ", JSON.parse(e.data));
+    };
+
+    if (this.canOffer) {
+      this.channels["chat"] = this.rtc.createDataChannel("chat");
+      (_a = this.channels.chat) === null || _a === void 0 ? void 0 : _a.addEventListener("message", chatListener);
+    }
+
+    this.rtc.addEventListener("datachannel", function (e) {
+      _this.channels[e.channel.label] = e.channel;
+      e.channel.addEventListener("message", chatListener);
+    });
+  };
+
   Peer.prototype.addStream = function (stream) {
     var _this = this;
 
+    var _a;
+
+    console.log("addStream(" + ((_a = stream.getTracks()[0]) === null || _a === void 0 ? void 0 : _a.kind) + "): Peer(" + this.id + ")");
     stream.getTracks().forEach(function (track) {
       return _this.senders.push(_this.rtc.addTrack(track, stream));
     });
@@ -724,7 +778,11 @@ function (_super) {
     var _this = this;
 
     this.log("Creating offer");
-    return this.rtc.createOffer().then(function (offer) {
+    return this.rtc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+      voiceActivityDetection: true
+    }).then(function (offer) {
       return _this.rtc.setLocalDescription(offer);
     }).then(function () {
       return _this.signaling.offer(_this.rtc.localDescription, _this);
@@ -770,7 +828,7 @@ function (_super) {
 }(_events.EventEmitter);
 
 exports.Peer = Peer;
-},{"vue":"node_modules/vue/dist/vue.runtime.esm.js","events":"node_modules/events/events.js"}],"src/lib/p2p/Signaling.interface.ts":[function(require,module,exports) {
+},{"vue":"node_modules/vue/dist/vue.runtime.esm.js","events":"node_modules/events/events.js","../../store":"src/store/index.ts"}],"src/lib/p2p/Signaling.interface.ts":[function(require,module,exports) {
 
 },{}],"node_modules/parseuri/index.js":[function(require,module,exports) {
 /**
@@ -9874,11 +9932,19 @@ function () {
     this.io.emit("candidate", candidate, peer.id);
   };
 
-  SocketIOSignaling.prototype.join = function (roomId) {
+  SocketIOSignaling.prototype.join = function (roomId, info) {
     var _this = this;
 
     return new Promise(function (resolve) {
-      return _this.io.emit("join", roomId, resolve);
+      return _this.io.emit("join", roomId, info, resolve);
+    });
+  };
+
+  SocketIOSignaling.prototype.hangup = function (roomId) {
+    var _this = this;
+
+    return new Promise(function (resolve) {
+      return _this.io.emit("hangup", roomId, resolve);
     });
   };
 
@@ -9938,14 +10004,14 @@ var _default = {
   }
 };
 exports.default = _default;
-        var $e4394e = exports.default || module.exports;
+        var $f9f75b = exports.default || module.exports;
       
-      if (typeof $e4394e === 'function') {
-        $e4394e = $e4394e.options;
+      if (typeof $f9f75b === 'function') {
+        $f9f75b = $f9f75b.options;
       }
     
         /* template */
-        Object.assign($e4394e, (function () {
+        Object.assign($f9f75b, (function () {
           var render = function() {
   var _vm = this
   var _h = _vm.$createElement
@@ -9983,9 +10049,9 @@ render._withStripped = true
         if (api.compatible) {
           module.hot.accept();
           if (!module.hot.data) {
-            api.createRecord('$e4394e', $e4394e);
+            api.createRecord('$f9f75b', $f9f75b);
           } else {
-            api.reload('$e4394e', $e4394e);
+            api.reload('$f9f75b', $f9f75b);
           }
         }
 
@@ -10207,78 +10273,155 @@ var __generator = void 0 && (void 0).__generator || function (thisArg, body) {
   }
 };
 
+var _a;
+
 var _default = _vue.default.extend({
   components: {
     CRtcVideo: _p2p.RTCVideo
   },
   data: function data() {
     return {
-      connected: false,
+      room: "teste",
       signaling: new _p2p.SocketIOSignaling("https://eh1v2.sse.codesandbox.io/"),
       peers: {},
+      fullscreen: false,
+      userInfo: {
+        username: localStorage.getItem("username") || prompt("Digite seu nome:")
+      },
+      media: {
+        screen: false,
+        microphone: false,
+        camera: false
+      },
       streams: {
         media: null,
         screen: null
       },
-      activeStream: null
+      activeStream: null,
+      chat: {
+        message: ""
+      }
     };
   },
   created: function created() {
-    return __awaiter(this, void 0, void 0, function () {
-      var _a, connectedPeers;
-
-      var _this = this;
-
-      return __generator(this, function (_b) {
-        switch (_b.label) {
-          case 0:
-            //@ts-ignore
-            _a = this.streams;
-            return [4
-            /*yield*/
-            , navigator.mediaDevices.getUserMedia({
-              audio: true,
-              video: false
-            })];
-
-          case 1:
-            //@ts-ignore
-            _a.media = _b.sent();
-            return [4
-            /*yield*/
-            , this.signaling.join("teste")];
-
-          case 2:
-            connectedPeers = _b.sent();
-            this.peers = connectedPeers.reduce(function (acc, peerId) {
-              acc[peerId] = _this.createPeer(peerId);
-              return acc;
-            }, {});
-            this.signaling.io.on("joined", function (peerId) {
-              var peer = _this.createPeer(peerId, false);
-
-              console.log(peerId + " entrou!");
-            });
-            return [2
-            /*return*/
-            ];
-        }
-      });
+    this.call().then(function () {
+      console.log("Connection stabilished.");
     });
   },
+  watch: (_a = {}, _a["$store.state.chat.messages"] = function (value) {
+    var _this = this;
+
+    var chat = this.$refs.chat;
+    var needScroll = chat.scrollTop >= chat.scrollHeight - chat.offsetHeight - 64;
+    this.$nextTick(function () {
+      if (_this.$refs.chat) {
+        console.log(chat.scrollTop);
+        console.log(chat.scrollHeight);
+        console.log(chat.scrollHeight - chat.offsetHeight - 64);
+
+        if (needScroll) {
+          chat.scrollTop = chat.scrollHeight;
+        }
+      }
+    });
+  }, _a),
+  computed: {
+    connected: function connected() {
+      return this.signaling && this.signaling.io.connected;
+    }
+  },
   methods: {
-    createPeer: function createPeer(peerId, canOffer) {
+    call: function call() {
+      return __awaiter(this, void 0, void 0, function () {
+        var _a, connectedPeers;
+
+        var _this = this;
+
+        return __generator(this, function (_b) {
+          switch (_b.label) {
+            case 0:
+              console.log("Calling...");
+
+              if (this.signaling && !this.signaling.io.connected) {
+                this.signaling.io.connect();
+              } //@ts-ignore
+
+
+              _a = this.streams;
+              return [4
+              /*yield*/
+              , this.getUserMedia()];
+
+            case 1:
+              //@ts-ignore
+              _a.media = _b.sent();
+              return [4
+              /*yield*/
+              , this.signaling.join(this.room, this.userInfo)];
+
+            case 2:
+              connectedPeers = _b.sent();
+              if (this.userInfo.username) localStorage.setItem("username", this.userInfo.username);
+              this.peers = connectedPeers.reduce(function (acc, _a) {
+                var id = _a.id,
+                    info = _a.info;
+                acc[id] = _this.createPeer(id, info);
+                return acc;
+              }, {}); // When someone join
+
+              this.signaling.io.on("joined", function (peerId, info) {
+                _this.peers[peerId] = _this.createPeer(peerId, info, false);
+                console.log(peerId + " entrou!");
+              }); // When someone hangup
+
+              this.signaling.io.on("hangup", function (peerId) {
+                console.log(peerId + " saiu!");
+
+                if (_this.peers[peerId]) {
+                  _this.peers[peerId].dispose();
+
+                  _vue.default.delete(_this.peers, peerId);
+                }
+              });
+              return [2
+              /*return*/
+              ];
+          }
+        });
+      });
+    },
+    hangup: function hangup() {
+      console.log("Disconnecting...");
+      this.signaling.hangup(this.room);
+      this.signaling.dispose();
+      Object.values(this.peers).forEach(function (peer) {
+        return peer.dispose();
+      });
+      this.peers = {};
+      console.log("Disconnected!");
+    },
+    createPeer: function createPeer(peerId, info, canOffer) {
       var _this = this;
+
+      if (info === void 0) {
+        info = {};
+      }
 
       if (canOffer === void 0) {
         canOffer = true;
       }
 
-      var peer = new _p2p.Peer(peerId, this.signaling, canOffer);
-      Object.values(this.streams).forEach(function (stream) {
-        if (stream) peer.addStream(stream);
+      var peer = new _p2p.Peer(peerId, this.signaling, info, canOffer);
+      Object.entries(this.streams).forEach(function (_a) {
+        var name = _a[0],
+            stream = _a[1];
+        console.log("Sending stream to " + peerId + ". Name: " + name + "; Stream: ", stream);
+
+        if (stream) {
+          peer.addStream(stream);
+        }
       });
-      if (!this.activeStream) peer.streams[0]; // @ts-ignore
+      if (!this.activeStream) this.activeStream = peer.streams[0]; // @ts-ignore
 
       peer.on("disconnected", function () {
         _this.$delete(_this.peers, peerId);
@@ -10287,25 +10430,25 @@ var _default = _vue.default.extend({
       return peer;
     },
     toggleScreenStream: function toggleScreenStream() {
-      return __awaiter(this, void 0, void 0, function () {
-        var _a;
+      var _a;
 
-        return __generator(this, function (_b) {
-          switch (_b.label) {
+      return __awaiter(this, void 0, void 0, function () {
+        var _b;
+
+        return __generator(this, function (_c) {
+          switch (_c.label) {
             case 0:
-              if (!!this.streams.screen) return [3
+              if (!!this.media.screen) return [3
               /*break*/
               , 2];
-              console.log("Enabling screen sharing!"); // @ts-ignore
-
-              _a = this.streams;
+              console.log("Enabling screen sharing!");
+              _b = this.streams;
               return [4
               /*yield*/
-              , navigator.mediaDevices.getDisplayMedia()];
+              , this.getDisplayMedia()];
 
             case 1:
-              // @ts-ignore
-              _a.screen = _b.sent();
+              _b.screen = _c.sent();
               this.addStream(this.streams.screen);
               return [3
               /*break*/
@@ -10313,14 +10456,15 @@ var _default = _vue.default.extend({
 
             case 2:
               console.log("Disabling screen sharing!");
-              this.streams.screen.getVideoTracks().forEach(function (track) {
+              (_a = this.streams.screen) === null || _a === void 0 ? void 0 : _a.getVideoTracks().forEach(function (track) {
                 return track.stop();
               });
               this.removeStream(this.streams.screen);
               this.streams.screen = null;
-              _b.label = 3;
+              _c.label = 3;
 
             case 3:
+              this.media.screen = !!this.streams.screen;
               return [2
               /*return*/
               ];
@@ -10330,11 +10474,14 @@ var _default = _vue.default.extend({
     },
     toggleAudioStream: function toggleAudioStream() {
       return __awaiter(this, void 0, void 0, function () {
+        var _this = this;
+
         return __generator(this, function (_a) {
           if (this.streams.media) {
-            console.log("Toggling microphone!");
+            console.log((this.media.microphone ? "Disabling" : "Enabling") + " microphone!");
+            this.media.microphone = !this.media.microphone;
             this.streams.media.getAudioTracks().forEach(function (track) {
-              return track.enabled = !track.enabled;
+              return track.enabled = _this.media.microphone;
             });
           }
 
@@ -10356,7 +10503,7 @@ var _default = _vue.default.extend({
               if (!this.streams.media) return [3
               /*break*/
               , 3];
-              if (!(this.streams.media.getVideoTracks().length > 0)) return [3
+              if (!this.media.camera) return [3
               /*break*/
               , 1];
               console.log("Disabling camera!");
@@ -10410,39 +10557,105 @@ var _default = _vue.default.extend({
       });
     },
     toggleFullScreen: function toggleFullScreen() {
-      if ( // @ts-ignore
+      if ( /// @ts-ignore
       window.fullScreen || window.innerWidth == screen.width && window.innerHeight == screen.height) {
         document.exitFullscreen();
+        this.fullscreen = false;
       } else {
         // @ts-ignore
-        this.$refs.mainVideo.requestFullscreen();
+        this.fullscreen = this.$refs.mainVideo.requestFullscreen();
       }
     },
     addStream: function addStream(stream) {
       Object.values(this.peers).forEach(function (peer) {
+        console.log("Adding stream to " + peer.id + ".", stream);
         peer.addStream(stream);
       });
     },
     removeStream: function removeStream(stream) {
       Object.values(this.peers).forEach(function (peer) {
+        console.log("Removing stream from " + peer.id + ".", stream);
         peer.removeStream(stream);
       });
+    },
+    getDisplayMedia: function getDisplayMedia() {
+      return __awaiter(this, void 0, void 0, function () {
+        return __generator(this, function (_a) {
+          this.media.screen = true; // @ts-ignore
+
+          return [2
+          /*return*/
+          , navigator.mediaDevices.getDisplayMedia()];
+        });
+      });
+    },
+    getUserMedia: function getUserMedia(options) {
+      if (options === void 0) {
+        options = {
+          audio: true,
+          video: false
+        };
+      }
+
+      return __awaiter(this, void 0, void 0, function () {
+        return __generator(this, function (_a) {
+          switch (_a.label) {
+            case 0:
+              this.media.microphone = options.audio;
+              this.media.camera = options.video;
+              return [4
+              /*yield*/
+              , navigator.mediaDevices.getUserMedia(options)];
+
+            case 1:
+              return [2
+              /*return*/
+              , _a.sent()];
+          }
+        });
+      });
+    },
+    sendChannelData: function sendChannelData(channelLabel, data) {
+      Object.values(this.peers).forEach(function (peer) {
+        if (peer.channels[channelLabel]) {
+          var channel = peer.channels[channelLabel];
+
+          if (channel.readyState === "open") {
+            channel.send(data);
+          }
+        }
+      });
+    },
+    sendChatMessage: function sendChatMessage() {
+      var messageText = this.chat.message.trim();
+
+      if (messageText) {
+        var message = {
+          user: this.userInfo,
+          text: this.chat.message,
+          date: new Date()
+        };
+        this.$store.dispatch("addMessage", message);
+        this.sendChannelData("chat", JSON.stringify(message));
+        this.chat.message = "";
+      }
     }
   },
-  destroyed: function destroyed() {
-    this.signaling.dispose();
+  beforeDestroy: function beforeDestroy() {
+    console.log("beforeDestroy()");
+    this.hangup();
   }
 });
 
 exports.default = _default;
-        var $56c6f3 = exports.default || module.exports;
+        var $c979f3 = exports.default || module.exports;
       
-      if (typeof $56c6f3 === 'function') {
-        $56c6f3 = $56c6f3.options;
+      if (typeof $c979f3 === 'function') {
+        $c979f3 = $c979f3.options;
       }
     
         /* template */
-        Object.assign($56c6f3, (function () {
+        Object.assign($c979f3, (function () {
           var render = function() {
   var _vm = this
   var _h = _vm.$createElement
@@ -10453,19 +10666,26 @@ exports.default = _default;
       _vm._v(" "),
       _c(
         "ul",
-        { staticClass: "messages-list scrollbar" },
-        _vm._l(10, function(i) {
-          return _c("li", { key: i }, [
-            _c("strong", { staticClass: "username" }, [_vm._v("Salomão Neto")]),
-            _vm._v(" "),
-            _c("p", { staticClass: "text" }, [
-              _vm._v(
-                "\n          Lorem ipsum dolor, sit amet consectetur adipisicing elit. Porro quis\n          exercitationem, deserunt nihil odit suscipit! Amet laborum dolorem\n          sequi. Nesciunt eveniet molestiae iste sit recusandae quo\n          dignissimos placeat dolorum delectus?\n        "
-              )
-            ]),
-            _vm._v(" "),
-            _c("time", { staticClass: "time" }, [_vm._v("11:00")])
-          ])
+        { ref: "chat", staticClass: "messages-list scrollbar" },
+        _vm._l(_vm.$store.state.chat.messages, function(message, i) {
+          return _c(
+            "li",
+            {
+              key: i,
+              class: { me: message.user.username === _vm.userInfo.username }
+            },
+            [
+              _c("strong", { staticClass: "username" }, [
+                _vm._v(_vm._s(message.user.username))
+              ]),
+              _vm._v(" "),
+              _c("p", { staticClass: "text" }, [_vm._v(_vm._s(message.text))]),
+              _vm._v(" "),
+              _c("time", { staticClass: "time" }, [
+                _vm._v(_vm._s(message.date))
+              ])
+            ]
+          )
         }),
         0
       ),
@@ -10482,7 +10702,34 @@ exports.default = _default;
         },
         [
           _c("textarea", {
-            attrs: { rows: "2", placeholder: "Escreva aqui..." }
+            directives: [
+              {
+                name: "model",
+                rawName: "v-model",
+                value: _vm.chat.message,
+                expression: "chat.message"
+              }
+            ],
+            attrs: { rows: "2", placeholder: "Escreva aqui..." },
+            domProps: { value: _vm.chat.message },
+            on: {
+              keyup: function($event) {
+                if (
+                  !$event.type.indexOf("key") &&
+                  _vm._k($event.keyCode, "enter", 13, $event.key, "Enter")
+                ) {
+                  return null
+                }
+                $event.stopPropagation()
+                return _vm.sendChatMessage($event)
+              },
+              input: function($event) {
+                if ($event.target.composing) {
+                  return
+                }
+                _vm.$set(_vm.chat, "message", $event.target.value)
+              }
+            }
           })
         ]
       )
@@ -10525,10 +10772,30 @@ exports.default = _default;
                 }
               }
             },
-            [_c("i", { staticClass: "mdi mdi-microphone" })]
+            [
+              _c("i", {
+                class:
+                  "mdi mdi-microphone" + (_vm.media.microphone ? "" : "-off")
+              })
+            ]
           ),
           _vm._v(" "),
-          _vm._m(1),
+          _c(
+            "button",
+            {
+              class: {
+                "action-button": true,
+                call: true,
+                hangup: _vm.connected
+              },
+              on: {
+                click: function() {
+                  return _vm.connected ? _vm.hangup() : _vm.call()
+                }
+              }
+            },
+            [_c("i", { staticClass: "mdi mdi-phone-hangup" })]
+          ),
           _vm._v(" "),
           _c(
             "button",
@@ -10540,7 +10807,11 @@ exports.default = _default;
                 }
               }
             },
-            [_c("i", { staticClass: "mdi mdi-video" })]
+            [
+              _c("i", {
+                class: "mdi mdi-video" + (_vm.media.camera ? "" : "-off")
+              })
+            ]
           ),
           _vm._v(" "),
           _c(
@@ -10553,7 +10824,11 @@ exports.default = _default;
                 }
               }
             },
-            [_c("i", { staticClass: "mdi mdi-fullscreen" })]
+            [
+              _c("i", {
+                class: "mdi mdi-fullscreen" + (_vm.fullscreen ? "-exit" : "")
+              })
+            ]
           )
         ])
       ],
@@ -10567,10 +10842,9 @@ exports.default = _default;
         return _c(
           "div",
           { key: id, staticClass: "remote-media" },
-          _vm._l(peer.streams, function(stream) {
-            return _c(
-              "c-rtc-video",
-              {
+          [
+            _vm._l(peer.streams, function(stream) {
+              return _c("c-rtc-video", {
                 key: stream.id,
                 attrs: { stream: stream, autoplay: "", playsinline: "" },
                 nativeOn: {
@@ -10578,11 +10852,14 @@ exports.default = _default;
                     _vm.activeStream = stream
                   }
                 }
-              },
-              [_c("strong", { staticClass: "username" }, [_vm._v(_vm._s(id))])]
-            )
-          }),
-          1
+              })
+            }),
+            _vm._v(" "),
+            _c("strong", { staticClass: "username" }, [
+              _vm._v(_vm._s(peer.info.username))
+            ])
+          ],
+          2
         )
       }),
       0
@@ -10628,14 +10905,6 @@ var staticRenderFns = [
         ])
       ])
     ])
-  },
-  function() {
-    var _vm = this
-    var _h = _vm.$createElement
-    var _c = _vm._self._c || _h
-    return _c("button", { staticClass: "action-button hangup" }, [
-      _c("i", { staticClass: "mdi mdi-phone-hangup" })
-    ])
   }
 ]
 render._withStripped = true
@@ -10657,9 +10926,9 @@ render._withStripped = true
         if (api.compatible) {
           module.hot.accept();
           if (!module.hot.data) {
-            api.createRecord('$56c6f3', $56c6f3);
+            api.createRecord('$c979f3', $c979f3);
           } else {
-            api.reload('$56c6f3', $56c6f3);
+            api.reload('$c979f3', $c979f3);
           }
         }
 
@@ -10698,7 +10967,7 @@ var parent = module.bundle.parent;
 if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
   var hostname = "" || location.hostname;
   var protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  var ws = new WebSocket(protocol + '://' + hostname + ':' + "42785" + '/');
+  var ws = new WebSocket(protocol + '://' + hostname + ':' + "40349" + '/');
 
   ws.onmessage = function (event) {
     checkedAssets = {};

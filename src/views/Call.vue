@@ -90,7 +90,8 @@
     <iframe
       src="https://eh1v2.sse.codesandbox.io/"
       style="display:none;"
-      frameborder="0"
+      allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
+      sandbox="allow-autoplay allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
     ></iframe>
   </div>
 </template>

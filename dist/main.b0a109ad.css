@@ -153,6 +153,36 @@ body {
   width: 100%;
   height: 100%;
 }
+#call .main-video .client-grid {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr 1fr;
+}
+#call .main-video .client-grid .client {
+  position: relative;
+  text-align: center;
+  background: #333;
+  color: #fff;
+  margin: 0.4rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+#call .main-video .client-grid .client .streams {
+  width: 100%;
+  height: auto;
+}
+#call .main-video .client-grid .client .streams video {
+  max-width: 100%;
+  max-height: 100%;
+}
+#call .main-video .client-grid .client .name {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+}
 #call .main-video .action-buttons {
   position: absolute;
   bottom: 1em;
@@ -166,8 +196,10 @@ body {
   width: 48px;
   height: 48px;
   cursor: pointer;
-  border-radius: 64px;
+  border-radius: 50%;
   background: rgba(0,0,0,0.25);
+  margin: 0 0.6rem;
+  outline: 0;
 }
 #call .main-video .action-buttons .action-button:hover {
   background: rgba(0,0,0,0.5);
@@ -175,13 +207,28 @@ body {
 #call .main-video .action-buttons .action-button.disabled {
   background: #f00;
 }
+#call .main-video .action-buttons .action-button.streamer {
+  position: relative;
+}
+#call .main-video .action-buttons .action-button.streamer.active:before {
+  content: "";
+  display: block;
+  position: absolute;
+  right: 90%;
+  top: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: #d00;
+  animation: blinker 1.6s ease-out infinite;
+}
 #call .main-video .action-buttons .action-button.call {
   width: 54px;
   height: 54px;
   font-size: 1.618em;
   background: #0f0;
 }
-#call .main-video .action-buttons .action-button.call.hangup {
+#call .main-video .action-buttons .action-button.call.connected {
   background: #f00;
 }
 #call .remote-medias {
@@ -196,16 +243,18 @@ body {
   display: inline-block;
   font-size: 0.809em;
   color: #e0e0e0;
-  width: 180px;
+  width: auto;
+  min-width: 180px;
   margin-right: 0.5em;
-  border: 1px solid #eee;
+  background-color: #0f0f0f;
 }
 #call .remote-medias .remote-media video {
-  background: #333;
-  width: 100%;
+  background: inherit;
+  width: 180px;
   height: 80px;
   margin: 0 auto;
   object-fit: cover;
+  padding: 0.2rem;
 }
 #call .remote-medias .remote-media strong {
   display: block;
@@ -213,5 +262,64 @@ body {
   text-overflow: ellipsis;
   overflow: hidden;
   width: 100%;
+  padding: 0.4rem 0.6rem;
+}
+#call .remote-medias .remote-media.local {
+  margin-left: 2.4rem;
+}
+#call .remote-medias .remote-media.local,
+#call .remote-medias .remote-media.local > vide {
+  background-color: #333;
+}
+#call .remote-medias .remote-media .local-stream {
+  position: relative;
+  display: inline-block;
+}
+#call .remote-medias .remote-media .local-stream:hover > .close {
+  opacity: 1;
+}
+#call .remote-medias .remote-media .local-stream .close {
+  opacity: 0;
+  transition: 0.2s ease-in-out;
+  position: absolute;
+  padding: 0.4rem 0.6rem;
+  text-align: center;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(255,255,255,0.8);
+  border: none;
+  outline: 0;
+  color: #111;
+  cursor: pointer;
+  vertical-align: middle;
+}
+#call .remote-medias .remote-media .local-stream .close > i.mdi {
+  margin-right: 0.4rem;
+  color: #d00;
+  font-size: 1.1rem;
+}
+#call .remote-medias .remote-media .local-stream .close > span {
+  font-size: 1rem;
+}
+@-moz-keyframes blinker {
+  50% {
+    opacity: 0;
+  }
+}
+@-webkit-keyframes blinker {
+  50% {
+    opacity: 0;
+  }
+}
+@-o-keyframes blinker {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes blinker {
+  50% {
+    opacity: 0;
+  }
 }
 

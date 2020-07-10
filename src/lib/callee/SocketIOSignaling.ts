@@ -3,18 +3,18 @@ import {
   SignalingSDPListener,
   SignalingCandidateListener,
   SignalingEvent,
-} from "./Signaling.interface";
+} from "../p2p/Signaling.interface";
 import SocketIO from "socket.io-client";
-import { Peer } from "./Peer";
+import { Peer } from "../p2p/Peer";
 
 export class SocketIOSignaling implements ISignaling {
   public readonly io: SocketIOClient.Socket;
 
   constructor(url: string, options?: SocketIOClient.ConnectOpts) {
     this.io = SocketIO(url, options);
-    this.io.on("connect", () =>
-      console.log("Socket.io connected: ", this.io.id)
-    );
+    this.io
+      .on("connect", () => console.log("Socket.io connected: ", this.io.id))
+      .on("error", console.error);
   }
 
   offer(offer: RTCSessionDescription, peer: Peer): void {
@@ -40,6 +40,17 @@ export class SocketIOSignaling implements ISignaling {
 
   hangup() {
     this.io.emit("hangup");
+  }
+
+  connect() {
+    return new Promise((resolve) => {
+      resolve();
+      this.io.connect().on("connect", resolve);
+    });
+  }
+
+  disconnect(): SocketIOClient.Socket {
+    return this.io.disconnect();
   }
 
   on(

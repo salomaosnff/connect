@@ -179,7 +179,7 @@ export default Vue.extend({
   data() {
     return {
       room: {} as Room,
-      signalServer: "http://pubby.club:8080",
+      signalServer: "https://pubby.club:8080",
       fullscreen: false,
       activeStream: {
         stream: null as MediaStream | null,

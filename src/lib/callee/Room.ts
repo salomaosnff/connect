@@ -54,7 +54,7 @@ export class Room extends EventEmitter {
     // When someone join
     this.signaling.io.on("joined", (client: RoomClient) => {
       this.addClient(client.id, client.info, false);
-      this.emit("client_joined");
+      this.emit("client:connected");
     });
 
     // When someone hangup
@@ -85,7 +85,7 @@ export class Room extends EventEmitter {
     this.channels.forEach((label) => peer.createChannel(label));
 
     peer.on("disconnected", () => {
-      this.emit("client_disconnected", id);
+      this.emit("client:disconnected", id);
       peer.dispose();
       Vue.delete(this.connections, id);
     });
@@ -104,7 +104,6 @@ export class Room extends EventEmitter {
     });
 
     Vue.set(this.connections, id, Vue.observable(peer));
-    this.emit("client_connected", id);
     return peer;
   }
 

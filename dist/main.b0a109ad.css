@@ -185,11 +185,31 @@ body {
 }
 #call .main-video .action-buttons {
   position: absolute;
-  bottom: 1em;
-  left: 50%;
-  transform: translate(-50%, 0);
+  bottom: 0;
+  width: 100%;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+#call .main-video .action-buttons:hover:before {
+  opacity: 1;
+}
+#call .main-video .action-buttons:before {
+  transition: all 0.2s ease-in-out;
+  opacity: 0;
+  content: "";
+  display: block;
+  width: 100%;
+  height: 110%;
+  left: 0;
+  bottom: 0;
+  position: absolute;
+  background: linear-gradient(to top, rgba(0,0,0,0.8) 30%, transparent);
 }
 #call .main-video .action-buttons .action-button {
+  z-index: 2;
+  position: relative;
   border: none;
   font-size: 1.3em;
   color: #fff;
@@ -205,7 +225,8 @@ body {
   background: rgba(0,0,0,0.5);
 }
 #call .main-video .action-buttons .action-button.disabled {
-  background: #f00;
+  opacity: 0.4;
+  cursor: default;
 }
 #call .main-video .action-buttons .action-button.streamer {
   position: relative;
@@ -301,6 +322,18 @@ body {
 }
 #call .remote-medias .remote-media .local-stream .close > span {
   font-size: 1rem;
+}
+.slide-y-reverse-transition-enter-active,
+.slide-y-reverse-transition-leave-active {
+  transition: 0.3s cubic-bezier(0.25, 0.8, 0.5, 1) !important;
+}
+.slide-y-reverse-transition-move {
+  transition: transform 0.6s;
+}
+.slide-y-reverse-transition-enter,
+.slide-y-reverse-transition-leave-to {
+  opacity: 0;
+  transform: translateY(15px);
 }
 @-moz-keyframes blinker {
   50% {

@@ -32645,7 +32645,7 @@ function (_super) {
             this.signaling.io.on("joined", function (client) {
               _this.addClient(client.id, client.info, false);
 
-              _this.emit("client_joined");
+              _this.emit("client:connected");
             }); // When someone hangup
 
             this.signaling.io.on("hangup", function (id) {
@@ -32696,7 +32696,7 @@ function (_super) {
       return peer.createChannel(label);
     });
     peer.on("disconnected", function () {
-      _this.emit("client_disconnected", id);
+      _this.emit("client:disconnected", id);
 
       peer.dispose();
       vue_1.default.delete(_this.connections, id);
@@ -32714,7 +32714,6 @@ function (_super) {
       _this.emit("channel:" + label, event);
     });
     vue_1.default.set(this.connections, id, vue_1.default.observable(peer));
-    this.emit("client_connected", id);
     return peer;
   };
 
@@ -33064,8 +33063,12 @@ exports.default = vue_1.default.extend({
   data: function data() {
     return {
       room: {},
-      signalServer: "http://pubby.club:8080",
+      signalServer: "https://connect-api.pubby.club",
       fullscreen: false,
+      actionButtons: {
+        show: true,
+        timeout: 0
+      },
       activeStream: {
         stream: null,
         peer: null
@@ -33092,6 +33095,8 @@ exports.default = vue_1.default.extend({
     var _a;
 
     return __awaiter(this, void 0, void 0, function () {
+      var mainVideo, timeoutDelay_1, showActionButtons_1;
+
       var _this = this;
 
       return __generator(this, function (_b) {
@@ -33117,9 +33122,59 @@ exports.default = vue_1.default.extend({
             this.room.chat.on("message", function (msg) {
               _this.$store.dispatch("addMessage", msg);
             });
-            this.room.on("client_connected", function (id) {
+            this.room.on("client:connected", function (id) {
               console.log("Client connected: ", id);
             });
+            this.room.on("client:disconnected", function (id) {
+              console.log("Client disconnected: ", id);
+            });
+            /**
+             * Setup fullscreen event listeners
+             */
+
+            document.addEventListener("fullscreenchange", function () {
+              if (!document.fullscreenElement && _this.fullscreen) {
+                _this.fullscreen = false;
+              }
+            });
+
+            if (this.$refs.mainVideo) {
+              mainVideo = this.$refs.mainVideo;
+              timeoutDelay_1 = 3;
+
+              showActionButtons_1 = function showActionButtons_1() {
+                _this.actionButtons.show = true;
+
+                if (_this.actionButtons.timeout) {
+                  clearTimeout(_this.actionButtons.timeout);
+                }
+
+                _this.actionButtons.timeout = setTimeout(function () {
+                  _this.actionButtons.show = false;
+                }, timeoutDelay_1 * 1000);
+              }; // Click
+
+
+              mainVideo.addEventListener("click", function () {
+                if (_this.inFullscreen) {
+                  if (!_this.actionButtons.show) {
+                    showActionButtons_1();
+                  } else {
+                    _this.actionButtons.show = false;
+                    if (_this.actionButtons.timeout) clearTimeout(_this.actionButtons.timeout);
+                  }
+                }
+              }); // Mouse Moove
+
+              mainVideo.addEventListener("mousemove", function () {
+                if (_this.inFullscreen) {
+                  if (!_this.actionButtons.show) {
+                    showActionButtons_1();
+                  }
+                }
+              });
+            }
+
             return [2
             /*return*/
             ];
@@ -33130,6 +33185,9 @@ exports.default = vue_1.default.extend({
   computed: {
     connected: function connected() {
       return this.room.signaling.io.connected;
+    },
+    inFullscreen: function inFullscreen() {
+      return this.fullscreen;
     }
   },
   watch: {
@@ -33139,11 +33197,21 @@ exports.default = vue_1.default.extend({
     "activeStream.peer.streams": {
       deep: true,
       handler: function handler(streams) {
-        if (this.activeStream.stream) {
+        if (this.activeStream.stream && streams) {
           if (!(this.activeStream.stream.id in streams)) {
             this.toggleActiveStream(null);
           }
         }
+      }
+    },
+
+    /**
+     * Fullscreen
+     */
+    inFullscreen: function inFullscreen(val) {
+      if (!val) {
+        this.actionButtons.show = true;
+        if (this.actionButtons.timeout) clearTimeout(this.actionButtons.timeout);
       }
     }
   },
@@ -33203,7 +33271,7 @@ exports.default = vue_1.default.extend({
 
         _this.enable.screen = false;
         _this.media.screen = null;
-        return err;
+        throw err;
       });
     },
     toggleUserMic: function toggleUserMic() {
@@ -33261,6 +33329,8 @@ exports.default = vue_1.default.extend({
       }
     },
     toggleUserScreen: function toggleUserScreen() {
+      var _this = this;
+
       if (this.enable.screen) {
         if (this.media.screen) {
           this.room.removeStream(this.media.screen);
@@ -33268,7 +33338,11 @@ exports.default = vue_1.default.extend({
           this.enable.screen = false;
         }
       } else {
-        this.requestUserScreen();
+        this.requestUserScreen().then(function (stream) {
+          if (!_this.activeStream.stream) {
+            _this.toggleActiveStream(stream);
+          }
+        });
       }
     },
     toggleActiveStream: function toggleActiveStream(stream, peer) {
@@ -33279,12 +33353,43 @@ exports.default = vue_1.default.extend({
       if (!stream) {
         this.activeStream.stream = null;
         this.activeStream.peer = null;
-      } else if (this.activeStream.stream === stream) {
-        this.activeStream.stream = null;
+      } else if (this.activeStream.stream === stream && !this.inFullscreen) {
+        if (this.room.connections) {
+          var peers = Object.keys(this.room.connections);
+
+          if (peers.length > 0) {
+            this.activeStream.stream = null;
+          }
+        }
       } else {
         this.activeStream.stream = stream;
         this.activeStream.peer = peer;
       }
+    },
+    toggleFullscreen: function toggleFullscreen() {
+      return __awaiter(this, void 0, void 0, function () {
+        var _this = this;
+
+        return __generator(this, function (_a) {
+          document.exitFullscreen().then(function () {
+            return _this.fullscreen = false;
+          }).catch(function () {
+            if (_this.activeStream.stream) {
+              var mainVideo = _this.$refs.mainVideo;
+              mainVideo.requestFullscreen({
+                navigationUI: "hide"
+              }).then(function () {
+                return _this.fullscreen = true;
+              }).catch(function () {
+                return _this.fullscreen = false;
+              });
+            }
+          });
+          return [2
+          /*return*/
+          ];
+        });
+      });
     },
     sendMessage: function sendMessage(e) {
       if (e.shiftKey) return false;
@@ -33449,6 +33554,7 @@ exports.default = vue_1.default.extend({
               expression: "activeStream.stream"
             }
           ],
+          staticClass: "media-stream",
           attrs: {
             stream: _vm.activeStream.stream,
             playsinline: "",
@@ -33462,69 +33568,129 @@ exports.default = vue_1.default.extend({
           }
         }),
         _vm._v(" "),
-        _c("div", { staticClass: "action-buttons" }, [
+        _c("transition", { attrs: { name: "slide-y-reverse-transition" } }, [
           _c(
-            "button",
+            "div",
             {
-              class: {
-                "action-button": true,
-                streamer: true,
-                active: _vm.enable.screen
-              },
-              on: { click: _vm.toggleUserScreen }
-            },
-            [_c("i", { staticClass: "mdi mdi-monitor-screenshot" })]
-          ),
-          _vm._v(" "),
-          _c(
-            "button",
-            { staticClass: "action-button", on: { click: _vm.toggleUserMic } },
-            [
-              _c("i", {
-                class: "mdi mdi-microphone" + (_vm.enable.audio ? "" : "-off")
-              })
-            ]
-          ),
-          _vm._v(" "),
-          _c(
-            "button",
-            {
-              class: {
-                "action-button": true,
-                call: true,
-                connected: _vm.connected
-              },
-              on: {
-                click: function() {
-                  return _vm.connected
-                    ? _vm.room.hangup()
-                    : _vm.room.join(_vm.userInfo)
+              directives: [
+                {
+                  name: "show",
+                  rawName: "v-show",
+                  value: _vm.actionButtons.show,
+                  expression: "actionButtons.show"
                 }
-              }
-            },
-            [_c("i", { staticClass: "mdi mdi-phone-hangup" })]
-          ),
-          _vm._v(" "),
-          _c(
-            "button",
-            {
-              class: {
-                "action-button": true,
-                streamer: true,
-                active: _vm.enable.video
-              },
-              on: { click: _vm.toggleUserCamera }
+              ],
+              ref: "actionButtons",
+              staticClass: "action-buttons"
             },
             [
-              _c("i", {
-                class: "mdi mdi-video" + (_vm.enable.video ? "" : "-off")
-              })
+              _c(
+                "button",
+                {
+                  class: {
+                    "action-button": true,
+                    streamer: true,
+                    active: _vm.enable.screen
+                  },
+                  on: {
+                    click: function($event) {
+                      $event.stopPropagation()
+                      return _vm.toggleUserScreen($event)
+                    }
+                  }
+                },
+                [_c("i", { staticClass: "mdi mdi-monitor-screenshot" })]
+              ),
+              _vm._v(" "),
+              _c(
+                "button",
+                {
+                  staticClass: "action-button",
+                  on: {
+                    click: function($event) {
+                      $event.stopPropagation()
+                      return _vm.toggleUserMic($event)
+                    }
+                  }
+                },
+                [
+                  _c("i", {
+                    class:
+                      "mdi mdi-microphone" + (_vm.enable.audio ? "" : "-off")
+                  })
+                ]
+              ),
+              _vm._v(" "),
+              _c(
+                "button",
+                {
+                  class: {
+                    "action-button": true,
+                    call: true,
+                    connected: _vm.connected
+                  },
+                  on: {
+                    click: function($event) {
+                      $event.stopPropagation()
+                      return (function() {
+                        return _vm.connected
+                          ? _vm.room.hangup()
+                          : _vm.room.join(_vm.userInfo)
+                      })($event)
+                    }
+                  }
+                },
+                [_c("i", { staticClass: "mdi mdi-phone-hangup" })]
+              ),
+              _vm._v(" "),
+              _c(
+                "button",
+                {
+                  class: {
+                    "action-button": true,
+                    streamer: true,
+                    active: _vm.enable.video
+                  },
+                  on: {
+                    click: function($event) {
+                      $event.stopPropagation()
+                      return _vm.toggleUserCamera($event)
+                    }
+                  }
+                },
+                [
+                  _c("i", {
+                    class: "mdi mdi-video" + (_vm.enable.video ? "" : "-off")
+                  })
+                ]
+              ),
+              _vm._v(" "),
+              _c(
+                "button",
+                {
+                  class: {
+                    "action-button": true,
+                    disabled: !_vm.activeStream.stream
+                  },
+                  on: {
+                    click: function($event) {
+                      $event.stopPropagation()
+                      return _vm.toggleFullscreen($event)
+                    }
+                  }
+                },
+                [
+                  _c("i", {
+                    class: {
+                      mdi: true,
+                      "mdi-fullscreen": !_vm.inFullscreen,
+                      "mdi-fullscreen-exit": _vm.inFullscreen
+                    }
+                  })
+                ]
+              )
             ]
-          ),
-          _vm._v(" "),
-          _c("button", { staticClass: "action-button" }, [
-            _c("i", { class: "mdi mdi-fullscreen" })
-          ])
+          )
         ])
       ],
       1
@@ -33589,6 +33755,7 @@ exports.default = vue_1.default.extend({
             [
               _vm.media.screen
                 ? _c("c-rtc-video", {
+                    staticClass: "media-stream",
                     attrs: {
                       stream: _vm.media.screen,
                       autoplay: "",
@@ -33629,6 +33796,7 @@ exports.default = vue_1.default.extend({
               _vm._l(peer.streams, function(stream) {
                 return _c("c-rtc-video", {
                   key: stream.id,
+                  staticClass: "media-stream",
                   attrs: { stream: stream, autoplay: "", playsinline: "" },
                   nativeOn: {
                     click: function($event) {
@@ -35350,7 +35518,7 @@ var parent = module.bundle.parent;
 if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
   var hostname = "" || location.hostname;
   var protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  var ws = new WebSocket(protocol + '://' + hostname + ':' + "45915" + '/');
+  var ws = new WebSocket(protocol + '://' + hostname + ':' + "40333" + '/');
 
   ws.onmessage = function (event) {
     checkedAssets = {};

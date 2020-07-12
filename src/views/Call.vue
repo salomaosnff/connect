@@ -339,10 +339,7 @@ export default Vue.extend({
   },
   methods: {
     requestUserMedia(
-      options: {
-        audio?: boolean;
-        video?: boolean;
-      } = {
+      options: MediaStreamConstraints = {
         video: false,
         audio: false,
       }
@@ -423,7 +420,9 @@ export default Vue.extend({
     toggleUserCamera() {
       if (!this.media.camera) {
         this.requestUserMedia({
-          video: true,
+          video: {
+            facingMode: 'environment'
+          },
           audio: this.enable.audio,
         });
       }

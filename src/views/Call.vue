@@ -36,49 +36,146 @@
       </ul>
       <form @submit.prevent class="composer">
         <textarea
-          v-model="chat.message"
+          v-model="chat.text"
           rows="2"
           placeholder="Escreva aqui..."
-          @keyup.enter.stop="sendChatMessage"
+          @keyup.enter.stop="sendMessage"
         ></textarea>
       </form>
     </section>
     <div class="main-video" ref="mainVideo">
+      <div v-show="!activeStream.stream" class="client-grid">
+        <div v-for="(peer, id) in room.connections" :key="id" class="client">
+          <div class="streams">
+            <c-rtc-video
+              v-for="stream in peer.streams"
+              :key="stream.id"
+              :stream="stream"
+              @click.native="toggleActiveStream(stream, peer)"
+              playsinline
+              autoplay
+              muted
+            ></c-rtc-video>
+          </div>
+          <h4 class="name">{{ peer.info.username }}</h4>
+        </div>
+      </div>
+
       <c-rtc-video
-        :stream="activeStream"
+        v-show="activeStream.stream"
+        :stream="activeStream.stream"
+        class="media-stream"
+        @click.native="toggleActiveStream(activeStream.stream)"
         playsinline
         autoplay
         muted
       ></c-rtc-video>
-      <div class="action-buttons">
-        <button class="action-button" @click="toggleScreenStream()">
-          <i class="mdi mdi-monitor-screenshot"></i>
-        </button>
 
-        <button class="action-button" @click="toggleAudioStream()">
-          <i :class="`mdi mdi-microphone${media.microphone ? '' : '-off'}`"></i>
-        </button>
-        <button
-          :class="{ 'action-button': true, call: true, hangup: connected }"
-          @click="() => (connected ? hangup() : call())"
+      <transition name="slide-y-reverse-transition">
+        <div
+          class="action-buttons"
+          ref="actionButtons"
+          v-show="actionButtons.show"
         >
-          <i class="mdi mdi-phone-hangup"></i>
-        </button>
-        <button class="action-button" @click="toggleCameraStream()">
-          <i :class="`mdi mdi-video${media.camera ? '' : '-off'}`"></i>
-        </button>
-        <button class="action-button" @click="toggleFullScreen()">
-          <i :class="`mdi mdi-fullscreen${fullscreen ? '-exit' : ''}`"></i>
-        </button>
-      </div>
+          <button
+            :class="{
+              'action-button': true,
+              streamer: true,
+              active: enable.screen,
+            }"
+            @click.stop="toggleUserScreen"
+          >
+            <i class="mdi mdi-monitor-screenshot"></i>
+          </button>
+
+          <button class="action-button" @click.stop="toggleUserMic">
+            <i :class="`mdi mdi-microphone${enable.audio ? '' : '-off'}`"></i>
+          </button>
+          <button
+            :class="{
+              'action-button': true,
+              call: true,
+              connected,
+            }"
+            @click.stop="
+              () => (connected ? room.hangup() : room.join(userInfo))
+            "
+          >
+            <i class="mdi mdi-phone-hangup"></i>
+          </button>
+          <button
+            :class="{
+              'action-button': true,
+              streamer: true,
+              active: enable.video,
+            }"
+            @click.stop="toggleUserCamera"
+          >
+            <i :class="`mdi mdi-video${enable.video ? '' : '-off'}`"></i>
+          </button>
+          <button
+            :class="{ 'action-button': true, disabled: !activeStream.stream }"
+            @click.stop="toggleFullscreen"
+          >
+            <i
+              :class="{
+                mdi: true,
+                'mdi-fullscreen': !inFullscreen,
+                'mdi-fullscreen-exit': inFullscreen,
+              }"
+            ></i>
+          </button>
+        </div>
+      </transition>
     </div>
     <div class="remote-medias scrollbar">
-      <div class="remote-media" v-for="(peer, id) in peers" :key="id">
+      <div class="remote-media local">
+        <div class="stream local-stream" v-show="enable.video">
+          <c-rtc-video
+            v-if="media.camera"
+            :stream="media.camera"
+            autoplay
+            playsinline
+            muted
+          ></c-rtc-video>
+
+          <button class="close" @click="toggleUserCamera">
+            <span>Interromper</span>
+            <i class="mdi mdi-stop"></i>
+          </button>
+        </div>
+
+        <div class="local-stream" v-show="enable.screen">
+          <c-rtc-video
+            v-if="media.screen"
+            :stream="media.screen"
+            class="media-stream"
+            @click.native="toggleActiveStream(media.screen)"
+            autoplay
+            playsinline
+            muted
+          ></c-rtc-video>
+
+          <button class="close" @click="toggleUserScreen">
+            <span>Interromper</span>
+            <i class="mdi mdi-stop"></i>
+          </button>
+        </div>
+
+        <strong class="username">{{ userInfo.username }}</strong>
+      </div>
+
+      <div
+        class="remote-media"
+        v-for="(peer, id) in room.connections"
+        :key="id"
+      >
         <c-rtc-video
           v-for="stream in peer.streams"
           :key="stream.id"
           :stream="stream"
-          @click.native="activeStream = stream"
+          class="media-stream"
+          @click.native="toggleActiveStream(stream, peer)"
           autoplay
           playsinline
         ></c-rtc-video>
@@ -86,20 +183,14 @@
         <strong class="username">{{ peer.info.username }}</strong>
       </div>
     </div>
-
-    <iframe
-     src="https://codesandbox.io/embed/twilight-field-eh1v2?fontsize=14&hidenavigation=1&theme=dark&view=preview"
-     style="display: none;width:100%; height:500px; border:0; border-radius: 4px; overflow:hidden;"
-     title="twilight-field-eh1v2"
-     allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
-     sandbox="allow-autoplay allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
-   ></iframe>
   </div>
 </template>
 
 <script lang="ts">
 import Vue from "vue";
-import { Peer, SocketIOSignaling, RTCVideo } from "../lib/p2p";
+import { RTCVideo } from "../components";
+import { Room, Chat } from "../lib/callee";
+import { Peer } from "../lib/p2p";
 
 export default Vue.extend({
   components: {
@@ -107,311 +198,318 @@ export default Vue.extend({
   },
   data() {
     return {
-      // @ts-ignore
-      room: this.$route.params.id,
-      signaling: new SocketIOSignaling("https://eh1v2.sse.codesandbox.io/"),
-      peers: {} as Record<string, Peer>,
+      room: {} as Room,
+      signalServer: "https://connect-api.pubby.club",
       fullscreen: false,
+      actionButtons: {
+        show: true,
+        timeout: 0,
+      },
+      activeStream: {
+        stream: null as MediaStream | null,
+        peer: null as Peer | null,
+      },
+      enable: {
+        audio: true,
+        video: false,
+        screen: false,
+      },
+      media: {
+        camera: null as MediaStream | null,
+        screen: null as MediaStream | null,
+      },
       userInfo: {
+        id: "",
         username:
           localStorage.getItem("username") || prompt("Digite seu nome:"),
       },
-      media: {
-        screen: false,
-        microphone: false,
-        camera: false,
-      },
-      streams: {
-        media: null as MediaStream | null,
-        screen: null as MediaStream | null,
-      },
-      activeStream: null as MediaStream | null,
       chat: {
-        message: "",
+        text: "",
       },
     };
   },
-  created() {
-    this.call().then(() => {
-      console.log("Connection stabilished.");
-    });
-  },
-  watch: {
-    ["$store.state.chat.messages"](value) {
-      const chat = this.$refs.chat as HTMLElement;
-      const needScroll =
-        chat.scrollTop >= chat.scrollHeight - chat.offsetHeight - 64;
+  async created() {
+    this.room = new Room(this.$route.params?.id, this.signalServer);
+    await this.room.join(this.userInfo);
 
-      this.$nextTick(() => {
-        if (this.$refs.chat) {
-          if (needScroll) {
-            chat.scrollTop = chat.scrollHeight;
+    this.requestUserMedia({
+      audio: this.enable.audio,
+      video: this.enable.video,
+    });
+
+    // Check for screen sharing at start
+    if (this.enable.screen) {
+      this.requestUserScreen();
+    }
+
+    this.room.chat.on("message", (msg) => {
+      this.$store.dispatch("addMessage", msg);
+    });
+
+    this.room.on("client:connected", (id) => {
+      console.log("Client connected: ", id);
+    });
+
+    this.room.on("client:disconnected", (id) => {
+      console.log("Client disconnected: ", id);
+    });
+
+    /**
+     * Setup fullscreen event listeners
+     */
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement && this.fullscreen) {
+        this.fullscreen = false;
+      }
+    });
+
+    if (this.$refs.mainVideo) {
+      const mainVideo = this.$refs.mainVideo as HTMLElement;
+
+      const timeoutDelay = 3;
+
+      const showActionButtons = () => {
+        this.actionButtons.show = true;
+
+        if (this.actionButtons.timeout) {
+          clearTimeout(this.actionButtons.timeout);
+        }
+
+        this.actionButtons.timeout = setTimeout(() => {
+          this.actionButtons.show = false;
+        }, timeoutDelay * 1000);
+      };
+
+      // Click
+      mainVideo.addEventListener("click", () => {
+        if (this.inFullscreen) {
+          if (!this.actionButtons.show) {
+            showActionButtons();
+          } else {
+            this.actionButtons.show = false;
+
+            if (this.actionButtons.timeout)
+              clearTimeout(this.actionButtons.timeout);
           }
         }
       });
-    },
+
+      // Mouse Moove
+      mainVideo.addEventListener("mousemove", () => {
+        if (this.inFullscreen) {
+          if (!this.actionButtons.show) {
+            showActionButtons();
+          }
+        }
+      });
+    }
   },
   computed: {
     connected(): boolean {
-      return this.signaling && this.signaling.io.connected;
+      return this.room.signaling.io.connected;
+    },
+    inFullscreen(): boolean {
+      return this.fullscreen;
+    },
+  },
+  watch: {
+    /**
+     * Remove active stream
+     */
+    "activeStream.peer.streams": {
+      deep: true,
+      handler(streams: Record<string, MediaStream>) {
+        if (this.activeStream.stream && streams) {
+          if (!(this.activeStream.stream.id in streams)) {
+            this.toggleActiveStream(null);
+          }
+        }
+      },
+    },
+    /**
+     * Fullscreen
+     */
+    inFullscreen(val: boolean) {
+      if (!val) {
+        this.actionButtons.show = true;
+        if (this.actionButtons.timeout)
+          clearTimeout(this.actionButtons.timeout);
+      }
     },
   },
   methods: {
-    async call() {
-      console.log("Calling...");
-
-      if (this.signaling && !this.signaling.io.connected) {
-        this.signaling.io.connect();
-      }
-
-      //@ts-ignore
-      this.streams.media = await this.getUserMedia();
-
-      const connectedPeers = await this.signaling.join(
-        this.room,
-        this.userInfo
-      );
-
-      if (this.userInfo.username)
-        localStorage.setItem("username", this.userInfo.username);
-
-      this.peers = connectedPeers.reduce(
-        (acc: Record<string, Peer>, { id, info }) => {
-          acc[id] = this.createPeer(id, info);
-          return acc;
-        },
-        {}
-      );
-
-      // When someone join
-      this.signaling.io.on(
-        "joined",
-        (peerId: string, info: Record<string, any>) => {
-          this.peers[peerId] = this.createPeer(peerId, info, false);
-
-          console.log(`${peerId} entrou!`);
-        }
-      );
-
-      // When someone hangup
-      this.signaling.io.on("hangup", (peerId: string) => {
-        console.log(`${peerId} saiu!`);
-        if (this.peers[peerId]) {
-          this.peers[peerId].dispose();
-          Vue.delete(this.peers, peerId);
-        }
-      });
-    },
-    hangup() {
-      console.log("Disconnecting...");
-
-      this.signaling.hangup();
-      this.signaling.dispose();
-      Object.values(this.peers).forEach((peer) => peer.dispose());
-      this.peers = {};
-      console.log("Disconnected!");
-    },
-    createPeer(
-      peerId: string,
-      info: Record<string, any> = {},
-      canOffer = true
-    ) {
-      const peer = new Peer(peerId, this.signaling, info, canOffer);
-
-      Object.entries(this.streams).forEach(([name, stream]) => {
-        console.log(
-          `Sending stream to ${peerId}. Name: ${name}; Stream: `,
-          stream
-        );
-        if (stream) {
-          peer.addStream(stream);
-        }
-      });
-
-      if (!this.activeStream) this.activeStream = peer.streams[0];
-
-      // @ts-ignore
-      peer.on("disconnected", () => {
-        this.$delete(this.peers, peerId);
-      });
-
-      this.$set(this.peers, peerId, Vue.observable(peer));
-      return peer;
-    },
-    async toggleScreenStream() {
-      if (!this.media.screen) {
-        console.log("Enabling screen sharing!");
-
-        this.streams.screen = await this.getDisplayMedia();
-        this.addStream(this.streams.screen as MediaStream);
-      } else {
-        console.log("Disabling screen sharing!");
-
-        this.streams.screen?.getVideoTracks().forEach((track) => track.stop());
-        this.removeStream(this.streams.screen as MediaStream);
-        this.streams.screen = null;
-      }
-
-      this.media.screen = !!this.streams.screen;
-    },
-    async toggleAudioStream() {
-      if (this.streams.media) {
-        console.log(
-          (this.media.microphone ? "Disabling" : "Enabling") + " microphone!"
-        );
-
-        this.media.microphone = !this.media.microphone;
-
-        this.streams.media
-          .getAudioTracks()
-          .forEach((track) => (track.enabled = this.media.microphone));
-      }
-    },
-    async toggleCameraStream() {
-      if (this.streams.media) {
-        if (this.media.camera) {
-          console.log("Disabling camera!");
-
-          this.streams.media
-            .getVideoTracks()
-            .forEach((track: MediaStreamTrack) => {
-              track.stop();
-              this.streams.media?.removeTrack(track);
-
-              Object.values(this.peers).forEach((p: Peer) => {
-                const sender = p.senders.find((s) => s.track?.id === track.id);
-
-                if (sender) {
-                  p.rtc.removeTrack(sender);
-                }
-              });
-            });
-        } else {
-          console.log("Enabling camera!");
-
-          const cameraStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-          });
-
-          cameraStream.getVideoTracks().forEach((track) => {
-            this.streams.media?.addTrack(track);
-
-            Object.values(this.peers).forEach((p: Peer) => {
-              p.senders.push(
-                p.rtc.addTrack(track, this.streams.media as MediaStream)
-              );
-            });
-          });
-        }
-      }
-    },
-    toggleFullScreen() {
-      if (
-        /// @ts-ignore
-        window.fullScreen ||
-        (window.innerWidth == screen.width &&
-          window.innerHeight == screen.height)
-      ) {
-        document.exitFullscreen();
-        this.fullscreen = false;
-      } else {
-        // @ts-ignore
-        this.fullscreen = this.$refs.mainVideo.requestFullscreen();
-      }
-    },
-    addStream(stream: MediaStream) {
-      Object.values(this.peers).forEach((peer) => {
-        console.log(`Adding stream to ${peer.id}.`, stream);
-        peer.addStream(stream);
-      });
-    },
-    removeStream(stream: MediaStream) {
-      Object.values(this.peers).forEach((peer) => {
-        console.log(`Removing stream from ${peer.id}.`, stream);
-        peer.removeStream(stream);
-      });
-    },
-    async getDisplayMedia() {
-      this.media.screen = true;
-      // @ts-ignore
-      return navigator.mediaDevices.getDisplayMedia();
-    },
-    async getUserMedia(
-      options: MediaStreamConstraints = {
-        audio: true,
+    requestUserMedia(
+      options: {
+        audio?: boolean;
+        video?: boolean;
+      } = {
         video: false,
+        audio: false,
       }
     ) {
-      this.media.microphone = options.audio as boolean;
-      this.media.camera = options.video as boolean;
-      return await navigator.mediaDevices.getUserMedia(options);
-    },
-    sendChannelData(channelLabel: string, data: any) {
-      Object.values(this.peers).forEach((peer) => {
-        if (peer.channels[channelLabel]) {
-          const channel = peer.channels[channelLabel];
+      return navigator.mediaDevices
+        .getUserMedia(options)
+        .then((media) => {
+          this.media.camera = media;
+          this.room.addStream(this.media.camera);
 
-          if (channel.readyState === "open") {
-            channel.send(data);
+          if (options.audio) this.enable.audio = true;
+          if (options.video) this.enable.video = true;
+          return this.media.camera;
+        })
+        .catch((err) => {
+          if (err.name !== "NotAllowedError") {
+            console.error(err);
+          }
+
+          this.media.camera = null;
+          if (options.audio) this.enable.audio = false;
+          if (options.video) this.enable.video = false;
+          return err;
+        });
+    },
+    requestUserScreen(): Promise<MediaStream> {
+      return (
+        navigator.mediaDevices
+          // @ts-ignore
+          .getDisplayMedia({
+            audio: false,
+            video: true,
+          })
+          .then((media: MediaStream) => {
+            // Adds on ended event listener
+            media.getVideoTracks()[0].onended = () => {
+              this.toggleUserScreen();
+            };
+
+            this.media.screen = media;
+            this.room.addStream(this.media.screen);
+            this.enable.screen = true;
+            return this.media.screen;
+          })
+          .catch((err: DOMException) => {
+            if (err.name !== "NotAllowedError") {
+              console.error(err);
+            }
+
+            this.enable.screen = false;
+            this.media.screen = null;
+            throw err;
+          })
+      );
+    },
+    toggleUserMic() {
+      if (!this.media.camera) {
+        this.requestUserMedia({
+          audio: true,
+          video: this.enable.video,
+        });
+      }
+
+      if (this.media.camera) {
+        if (this.enable.audio) {
+          this.media.camera
+            .getAudioTracks()
+            .forEach((track) => (track.enabled = false));
+        } else {
+          this.media.camera
+            .getAudioTracks()
+            .forEach((track) => (track.enabled = true));
+        }
+
+        this.enable.audio = !this.enable.audio;
+      }
+    },
+    toggleUserCamera() {
+      if (!this.media.camera) {
+        this.requestUserMedia({
+          video: true,
+          audio: this.enable.audio,
+        });
+      }
+
+      if (this.media.camera) {
+        if (this.enable.video) {
+          this.media.camera.getVideoTracks().forEach((track) => {
+            track.stop();
+            this.media.camera?.removeTrack(track);
+            this.room.removeTrack(track);
+          });
+          this.media = {
+            ...this.media,
+            camera: this.media.camera,
+          };
+
+          this.enable.video = false;
+        } else {
+          this.requestUserMedia({ video: true, audio: false });
+        }
+      }
+    },
+    toggleUserScreen() {
+      if (this.enable.screen) {
+        if (this.media.screen) {
+          this.room.removeStream(this.media.screen);
+          this.media.screen = null;
+          this.enable.screen = false;
+        }
+      } else {
+        this.requestUserScreen().then((stream) => {
+          if (!this.activeStream.stream) {
+            this.toggleActiveStream(stream);
+          }
+        });
+      }
+    },
+    toggleActiveStream(stream: MediaStream | null, peer: Peer | null = null) {
+      if (!stream) {
+        this.activeStream.stream = null;
+        this.activeStream.peer = null;
+      } else if (this.activeStream.stream === stream && !this.inFullscreen) {
+        if (this.room.connections) {
+          const peers = Object.keys(this.room.connections);
+          if (peers.length > 0) {
+            this.activeStream.stream = null;
           }
         }
-      });
+      } else {
+        this.activeStream.stream = stream;
+        this.activeStream.peer = peer;
+      }
     },
-    normalizeMessage(msg: string): string {
-      return msg
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;")
-        .replace(
-          /https?:\/\/(?:www.)?(?:youtube.com\/watch\?v=|youtu.be\/)(\w+)/g,
-          "yt($1)"
-        )
-        .replace(
-          /(https?:\/\/[^\s]+\.(?:png|jpe?g|gif|svg|webp)[^\s]*)/g,
-          "[$1]"
-        )
-        .replace(/(https?:\/\/[^\s]+\.(?:mp4)[^\s]*)/g, "video($1)")
-        .replace(
-          /(?<!\[)(?<!video\()(https?\:\/\/[^\s]+)/g,
-          `<a href="$1" title="$1" target="_blank">$1</a>`
-        )
-        .replace(
-          /yt\(([^\]]+)\)/g,
-          ` <div class="media">
-              <iframe frameborder="0" src="https://youtube.com/embed/$1" class="img-link" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-              <a href="https://youtube.com/watch?v=$1" target="_blank" title="https://youtube.com/watch?v=$1">https://youtube.com/watch?v=$1</a>
-            </div>`
-        )
-        .replace(/video\(([^\]]+)\)/g, `<video src="$1" controls />`)
-        .replace(
-          /\[(https?\:\/\/[^\s]+)\]/g,
-          `<a href="$1" title="$1" class="img-link" target="_blank"><img src="$1"/></a>`
-        )
-        .replace(/\*\*([^*]+)\*\*/g, `<strong>$1</strong>`)
-        .replace(/\~([^~]+)\~/g, `<strike>$1</strike>`)
-        .replace(/__([^_]+)__/g, `<em>$1</em>`);
+    async toggleFullscreen() {
+      document
+        .exitFullscreen()
+        .then(() => (this.fullscreen = false))
+        .catch(() => {
+          if (this.activeStream.stream) {
+            const mainVideo = this.$refs.mainVideo as HTMLElement;
+            mainVideo
+              .requestFullscreen({
+                navigationUI: "hide",
+              })
+              .then(() => (this.fullscreen = true))
+              .catch(() => (this.fullscreen = false));
+          }
+        });
     },
-    sendChatMessage() {
-      const messageText = this.normalizeMessage(this.chat.message.trim());
+    sendMessage(e: KeyboardEvent) {
+      if (e.shiftKey) return false;
+      const msg = this.chat.text.trim();
 
-      if (messageText) {
-        const message = {
-          user: this.userInfo,
-          text: messageText,
-          date: new Date(),
-        };
-        this.$store.dispatch("addMessage", message);
-        this.sendChannelData("chat", JSON.stringify(message));
+      if (msg) {
+        this.room.chat.sendMessage(msg);
+        this.$store.dispatch(
+          "addMessage",
+          this.room.chat.createMessage(msg, true)
+        );
 
-        this.chat.message = "";
+        this.chat.text = "";
       }
     },
   },
-  beforeDestroy() {
-    console.log("beforeDestroy()");
-    this.hangup();
+  destroyed() {
+    this.room.dispose();
   },
 });
 </script>
@@ -588,28 +686,103 @@ export default Vue.extend({
       height: 100%;
     }
 
+    .client-grid {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      grid-template-rows: 1fr 1fr 1fr 1fr;
+
+      .client {
+        position: relative;
+        text-align: center;
+        background: #333;
+        color: #fff;
+        margin: .4rem;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+
+        .streams {
+          width: 100%;
+          height: auto;
+
+          video {
+            max-width: 100%;
+            max-height: 100%;
+          }
+        }
+        .name {
+          width: 100%;
+          padding: .4rem .6rem;
+        }
+      }
+    }
+
     .action-buttons {
       position: absolute;
-      bottom: 1em;
-      left: 50%;
-      transform: translate(-50%, 0);
+      bottom: 0;
+      width: 100%;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+
+      &:hover:before {
+        opacity: 1;
+      }
+      &:before {
+        transition: all .2s ease-in-out;
+        opacity: 0;
+        content "";
+        display: block;
+        width: 100%;
+        height: 110%;
+        left: 0;
+        bottom: 0;
+        position: absolute;
+        background: linear-gradient(to top, rgba(#000, .8) 30%, transparent)
+      }
 
       .action-button {
+        z-index: 2;
+        position: relative;
         border: none;
         font-size: 1.3em;
         color: #FFF;
         width: 48px;
         height: 48px;
         cursor: pointer;
-        border-radius: 64px;
+        border-radius: 50%;
         background: rgba(0, 0, 0, 0.25);
+        margin: 0 .6rem;
+        outline: 0;
 
         &:hover {
           background: rgba(0, 0, 0, 0.5);
         }
 
         &.disabled {
-          background: #F00;
+          opacity: .4;
+          cursor: default;
+        }
+
+        &.streamer {
+          position: relative;
+
+          &.active:before {
+            content: "";
+            display: block;
+            position: absolute;
+            right: 90%;
+            top: 0;
+            width: .5rem;
+            height: .5rem;
+            border-radius: 50%;
+            background-color: #dd0000;
+            animation: blinker 1.6s ease-out infinite
+          }
         }
 
         &.call {
@@ -618,7 +791,7 @@ export default Vue.extend({
           font-size: 1.618em;
           background: #0F0;
 
-          &.hangup {
+          &.connected {
             background: #F00;
           }
         }
@@ -638,16 +811,18 @@ export default Vue.extend({
       display: inline-block;
       font-size: 0.809em;
       color: #e0e0e0;
-      width: 180px;
+      width: auto;
+      min-width: 180px;
       margin-right: 0.5em;
-      border: 1px solid #eee;
+      background-color: #0f0f0f;
 
       video {
-        background: #333;
-        width: 100%;
+        background: inherit;
+        width: 180px;
         height: 80px;
         margin: 0 auto;
         object-fit: cover;
+        padding: .2rem;
       }
 
       strong {
@@ -656,8 +831,74 @@ export default Vue.extend({
         text-overflow: ellipsis;
         overflow: hidden;
         width: 100%;
+        padding: .4rem .6rem;
+      }
+
+      &.local {
+        margin-left: 2.4rem;
+
+        &, & > vide {
+          background-color: #333;
+        }
+      }
+
+      .local-stream {
+        position: relative;
+        display: inline-block;
+
+        &:hover > .close {
+          opacity: 1;
+        }
+        .close {
+          opacity: 0;
+          transition: .2s ease-in-out;
+          position: absolute;
+          padding: .4rem .6rem;
+          text-align: center;
+          bottom: 0;
+          left: 0;
+          width: 100%;
+          background: rgba(255, 255, 255, .8);
+          border: none;
+          outline: 0;
+          color: #111;
+          cursor: pointer;
+          vertical-align: middle;
+
+          & > i.mdi {
+            margin-right: .4rem;
+            color: #dd0000;
+            font-size: 1.1rem;
+          }
+
+          & > span {
+            font-size: 1rem;
+          }
+        }
       }
     }
   }
+
+  .media-stream {
+  }
+}
+
+@keyframes blinker {
+  50% {
+    opacity: 0;
+  }
+}
+
+.slide-y-reverse-transition-enter-active,
+.slide-y-reverse-transition-leave-active {
+  transition: 0.3s cubic-bezier(0.25, 0.8, 0.5, 1) !important;
+}
+.slide-y-reverse-transition-move {
+  transition: transform .6s;
+}
+.slide-y-reverse-transition-enter,
+.slide-y-reverse-transition-leave-to {
+  opacity: 0;
+  transform: translateY(15px);
 }
 </style>

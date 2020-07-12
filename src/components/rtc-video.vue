@@ -1,5 +1,12 @@
 <template>
-  <video v-show="isVideo" :srcObject.prop="stream" autoplay playsinline />
+  <video
+    v-show="isVideo"
+    :srcObject.prop="stream"
+    autoplay
+    playsinline
+    :muted="muted"
+    :volume.prop="muted ? 0 : 100"
+  />
 </template>
 
 <script>
@@ -9,6 +16,7 @@ export default {
       type: MediaStream,
       required: false,
     },
+    muted: Boolean,
   },
   computed: {
     isVideo: {

@@ -3,20 +3,22 @@ import { ISignaling, SignalingEvent } from "./Signaling.interface";
 import { EventEmitter } from "events";
 import store from "../../store";
 
+export type PeerInfo = Record<string, any>;
+
 export class Peer extends EventEmitter {
   public rtc: RTCPeerConnection;
   public streams: Record<string, MediaStream> = {};
-  public senders: RTCRtpSender[] = [];
 
   public readonly channels: Record<string, RTCDataChannel> = {};
 
+  private senders: RTCRtpSender[] = [];
   private socketListeners: Record<SignalingEvent, Function>;
 
   constructor(
     public readonly id: string,
     private readonly signaling: ISignaling,
-    public info: Record<string, any> = {},
-    private canOffer = true
+    public info: PeerInfo = {},
+    private offer = true
   ) {
     super();
 
@@ -47,43 +49,31 @@ export class Peer extends EventEmitter {
       ],
     });
 
-    this.registerListeners();
-    this.createDataChannels();
+    /**
+     * Event listeners
+     */
+    this.rtc.addEventListener("negotiationneeded", () => {
+      this.log("Negotiation needed", `Offer: ${this.offer}`);
+      if (this.offer || this.isConnected()) this.createOffer();
+    });
 
-    this.socketListeners = {
-      candidate: signaling.on(
-        "candidate",
-        this,
-        (candidate: RTCIceCandidate) =>
-          candidate && this.rtc.addIceCandidate(candidate)
-      ),
-      offer: signaling.on("offer", this, (offer: RTCSessionDescription) => {
-        this.log("Received offer");
-        this.createAnswer(offer);
-      }),
-      answer: signaling.on(
-        "answer",
-        this,
-        (answer: RTCSessionDescriptionInit) => {
-          this.log("Received answer", answer);
-          this.rtc.setRemoteDescription(answer);
-        }
-      ),
-    };
-  }
+    // Data channel received event
+    this.rtc.addEventListener("datachannel", (e) => {
+      const { label } = e.channel;
+      e.channel.addEventListener("message", (e) => {
+        this.emit(`channel`, label, e);
+      });
+      this.channels[label] = e.channel;
+    });
 
-  private registerListeners() {
+    // Ice candidate event
     this.rtc.addEventListener("icecandidate", (e) => {
       if (e.candidate) {
         this.signaling.candidate(e.candidate, this);
       }
     });
 
-    this.rtc.addEventListener("negotiationneeded", () => {
-      console.log("Negotiation needed", `Can offer: ${this.canOffer}`);
-      if (this.canOffer) this.createOffer();
-    });
-
+    // Connection state change event
     this.rtc.addEventListener("connectionstatechange", () => {
       const { connectionState } = this.rtc;
 
@@ -92,21 +82,16 @@ export class Peer extends EventEmitter {
       }
 
       if (connectionState === "connected") {
-        this.canOffer = true;
+        this.offer = true;
       }
 
-      this.log(`Connection State Changed => ${connectionState}`);
-
-      // Verifica se o status atual não for conectado ou conectado e remove
-      // os listeners
       if (!new Set(["connected", "connecting"]).has(connectionState)) {
         this.dispose();
       }
     });
 
+    // Track event
     this.rtc.addEventListener("track", (e) => {
-      console.log("Track event. Streams: ", e.streams);
-
       e.streams.forEach((stream) => {
         if (!this.streams[stream.id]) {
           stream.addEventListener("removetrack", (e) => {
@@ -122,46 +107,28 @@ export class Peer extends EventEmitter {
         };
       });
     });
-  }
 
-  private createDataChannels() {
-    const chatListener = (e: MessageEvent) => {
-      const message = JSON.parse(e.data);
-      store.dispatch("addMessage", message);
-    };
-
-    if (this.canOffer) {
-      this.channels["chat"] = this.rtc.createDataChannel("chat");
-      this.channels.chat?.addEventListener("message", chatListener);
-    }
-
-    this.rtc.addEventListener("datachannel", (e) => {
-      this.channels[e.channel.label] = e.channel;
-      e.channel.addEventListener("message", chatListener);
-    });
-  }
-
-  addStream(stream: MediaStream): Peer {
-    console.log(`addStream(${stream.getTracks()[0]?.kind}): Peer(${this.id})`);
-    stream
-      .getTracks()
-      .forEach((track) => this.senders.push(this.rtc.addTrack(track, stream)));
-    return this;
-  }
-
-  removeStream(stream: MediaStream): Peer {
-    stream.getTracks().forEach((track) => {
-      this.senders.forEach((sender, senderIdx) => {
-        if (sender.track?.id === track.id) {
-          this.rtc.removeTrack(sender);
-          this.senders.splice(senderIdx, 1);
+    /**
+     * Socket listeners
+     */
+    this.socketListeners = {
+      candidate: signaling.on(
+        "candidate",
+        this,
+        (candidate: RTCIceCandidate) =>
+          candidate && this.rtc.addIceCandidate(candidate)
+      ),
+      offer: signaling.on("offer", this, (offer: RTCSessionDescription) => {
+        this.createAnswer(offer);
+      }),
+      answer: signaling.on(
+        "answer",
+        this,
+        (answer: RTCSessionDescriptionInit) => {
+          this.rtc.setRemoteDescription(answer);
         }
-      });
-    });
-
-    Vue.delete(this.streams, stream.id);
-    console.log("DELETE: ", stream.id);
-    return this;
+      ),
+    };
   }
 
   private createOffer() {
@@ -195,10 +162,76 @@ export class Peer extends EventEmitter {
       );
   }
 
+  /**
+   * Return true if the RTCPeerConnection is connected
+   */
+  isConnected(): boolean {
+    return this.rtc.connectionState == "connected";
+  }
+
+  /**
+   * Adds a track to the PeerConnection
+   * @param track Track to be added
+   * @param stream Stream of the track
+   */
+  addTrack(track: MediaStreamTrack, stream: MediaStream) {
+    this.senders.push(this.rtc.addTrack(track, stream));
+  }
+
+  /**
+   * Removes a track from the PeerConnection
+   * @param track Track to be removed
+   */
+  removeTrack(track: MediaStreamTrack) {
+    const sender = this.senders.find(
+      (s: RTCRtpSender) => s.track?.id === track.id
+    );
+    if (sender) {
+      this.rtc.removeTrack(sender);
+    }
+  }
+
+  addStream(stream: MediaStream): Peer {
+    stream.getTracks().forEach((track) => this.addTrack(track, stream));
+    return this;
+  }
+
+  removeStream(stream: MediaStream): Peer {
+    stream.getTracks().forEach((track) => {
+      this.senders.forEach((sender, senderIdx) => {
+        if (sender.track?.id === track.id) {
+          this.rtc.removeTrack(sender);
+          this.senders.splice(senderIdx, 1);
+        }
+      });
+    });
+
+    Vue.delete(this.streams, stream.id);
+    return this;
+  }
+
+  createChannel(label: string): RTCDataChannel {
+    if (!this.channels[label] && (this.offer || this.isConnected())) {
+      this.channels[label] = this.rtc.createDataChannel(label);
+      this.channels[label].addEventListener("message", (e) => {
+        this.emit(`channel`, label, e);
+      });
+    }
+    return this.channels[label];
+  }
+
+  removeChannel(label: string) {
+    if (this.channels[label]) {
+      try {
+        this.channels[label].close();
+      } catch (e) {}
+
+      Vue.delete(this.channels, label);
+    }
+  }
+
   dispose() {
-    this.socketListeners.candidate();
-    this.socketListeners.offer();
-    this.socketListeners.answer();
+    Object.values(this.socketListeners).forEach((listener) => listener());
 
     delete this.streams;
     delete this.socketListeners;
